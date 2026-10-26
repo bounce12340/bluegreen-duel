@@ -16,7 +16,7 @@ export const CONFIG = {
   // 綠界實況主收款頁網址；留空則不顯示贊助按鈕
   SPONSOR_URL: '',
 
-  TURN_SECONDS: 60,
+  TURN_SECONDS: 30,
 
   // 隨機配對最多等幾秒，時間到自動改跟電腦對戰
   MATCH_SECONDS: 30,

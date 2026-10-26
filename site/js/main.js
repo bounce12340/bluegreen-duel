@@ -22,6 +22,9 @@ const RAR = { common: '', rare: '★', epic: '★★' };
 const RAR_NAME = { common: '普通', rare: '稀有', epic: '史詩' };
 
 let game = null, me = 'blue', opp = 'green', busy = false, timerId = null, timeLeft = 0, gen = 0;
+// 出牌演出：卡牌先放大展示，結束後才更新比分與群眾
+let fxChain = Promise.resolve(), holdBoard = false, animating = 0, castSkip = null;
+const art = (id) => `assets/cards/${id}.webp`;
 // 連線模式狀態
 let mode = 'local';          // 'local' 對戰電腦｜'online' 連線
 let server = { online: false };
@@ -116,12 +119,12 @@ function startGame(side) {
 }
 
 function nextPhase() {
-  if (game.over) { playEvents(); render(); return; }
+  if (game.over) { playEvents(); return; }
   if (game.current === me) startMyTurn();
   else runAI();
 }
 
-const isMyTurn = () => game && !game.over && !busy && !game.pending && game.current === me
+const isMyTurn = () => game && !game.over && !busy && !animating && !game.pending && game.current === me
   && (mode === 'local' || (sock && sock.readyState === 1));
 
 // ── 畫面 ─────────────────────────────────
@@ -153,10 +156,13 @@ function infoHTML(side, mine) {
 function render() {
   if (!game) return;
   const mp = game.players[me];
-  $('#round').textContent = `第 ${Math.min(game.round, RULES.maxRounds)} / ${RULES.maxRounds} 回合`;
-  $('#neutral').textContent = `中間選民 ${neutral(game)}`;
-  const oi = $('#opp-info'); oi.className = `info opp ${opp}`; oi.innerHTML = infoHTML(opp, false);
-  const mi = $('#me-info'); mi.className = `info me ${me}`; mi.innerHTML = infoHTML(me, true);
+  if (!holdBoard) {
+    $('#round').textContent = `第 ${Math.min(game.round, RULES.maxRounds)} / ${RULES.maxRounds} 回合`;
+    $('#neutral').textContent = `中間選民 ${neutral(game)}`;
+    const oi = $('#opp-info'); oi.className = `info opp ${opp}`; oi.innerHTML = infoHTML(opp, false);
+    const mi = $('#me-info'); mi.className = `info me ${me}`; mi.innerHTML = infoHTML(me, true);
+    crowd.setCounts(mp.supporters, game.players[opp].supporters);
+  }
 
   const night = !!(game.field);
   $('#battle').classList.toggle('night', night);
@@ -166,10 +172,12 @@ function render() {
 
   // 行程點
   const myTurn = game.current === me && !game.over;
-  const apMax = Math.max(mp.ap, 0);
-  $('#ap').innerHTML = myTurn
-    ? `行程點 ${'<i></i>'.repeat(Math.min(apMax, 12))} ${mp.ap}`
-    : `<span class="small">${game.over ? '' : mode === 'online' ? '對手思考中…' : busy ? '對手行動中…' : ''}</span>`;
+  const apNow = Math.max(mp.ap, 0);
+  const dots = Array.from({ length: RULES.apCap }, (_, i) => `<i class="${i < apNow ? '' : 'used'}"></i>`).join('');
+  $('#ap').innerHTML = `<span class="ap-label">行程點 ${apNow}/${RULES.apCap}</span><span class="ap-dots">${dots}</span>`
+    + `<span class="small ap-hint">${game.over ? '' : myTurn
+      ? (game.magicThisTurn ? '魔法卡用過了，還可以出 1 張牌' : `每回合 +${RULES.apPerTurn}，沒用完會存著`)
+      : (mode === 'online' ? '對手思考中…' : '對手行動中…')}</span>`;
 
   // 手牌
   const hand = $('#hand');
@@ -179,8 +187,9 @@ function render() {
     const ok = myTurn && !busy && canPlay(game, me, c.uid);
     const cost = cardCost(game, me, c);
     el.className = `card ${c.side === 'shared' ? '' : c.side} ${c.rarity === 'epic' ? 'epic' : ''} ${ok ? '' : 'cant'}`;
-    el.innerHTML = `<span class="cost ${cost > c.cost ? 'up' : ''}">${cost}</span><span class="rar">${RAR[c.rarity]}</span>
-      <span class="ico">${TYPE[c.type][0]}</span><span class="nm">${c.name}</span><span class="tx">${c.short || c.text}</span>`;
+    el.innerHTML = `<span class="art-wrap"><img class="art" src="${art(c.id)}" alt="" loading="lazy" draggable="false">
+        <span class="cost ${cost > c.cost ? 'up' : ''}">${cost}</span><span class="type">${TYPE[c.type][0]}</span></span>
+      <span class="nm">${c.name}${RAR[c.rarity] ? `<span class="rar">${RAR[c.rarity]}</span>` : ''}</span><span class="tx">${c.short || c.text}</span>`;
     el.addEventListener('click', () => openCard(c.uid));
     hand.appendChild(el);
   }
@@ -188,7 +197,6 @@ function render() {
 
   $('#end-btn').disabled = !isMyTurn();
   $('#ult-btn').classList.toggle('hidden', !(isMyTurn() && canBurst(game, me)));
-  crowd.setCounts(mp.supporters, game.players[opp].supporters);
 }
 
 function setOppFace(expr) {
@@ -225,28 +233,121 @@ function toast(msg, side, big = false) {
   t.className = `toast ${side || ''} ${big ? 'big' : ''}`;
   t.textContent = msg;
   $('#toasts').appendChild(t);
-  setTimeout(() => t.remove(), 1900);
+  setTimeout(() => t.remove(), 2600);
   const all = $('#toasts').children;
   while (all.length > 3) all[0].remove();
 }
 
-// 把引擎事件轉成提示、音效、表情
+// 把引擎事件排進演出佇列：卡牌先放大展示，再播效果、更新比分。回傳演出結束的 Promise。
 function playEvents() {
-  for (const ev of takeEvents(game)) {
+  const events = takeEvents(game);
+  const myGen = gen;
+  animating += 1;
+  fxChain = fxChain.then(() => (myGen === gen ? animateEvents(events) : null)).catch(() => {}).then(() => {
+    animating = Math.max(0, animating - 1);
+    holdBoard = false;
+    if (myGen === gen && game) render();
+  });
+  return fxChain;
+}
+
+// 哪些事件要先放大展示卡牌
+function castFor(ev) {
+  const C = CARD_BY_ID;
+  if (ev.type === 'play') {
+    if (ev.hidden) return { side: ev.side, facedown: true, label: ev.side === me ? '你蓋了一張陷阱' : '對手蓋了一張陷阱' };
+    return { side: ev.side, card: C[ev.card], label: ev.side === me ? '你打出' : '對手打出' };
+  }
+  if (ev.type === 'pass') return { side: other(ev.side), card: C[ev.asId], label: '放行，宣告生效' };
+  if (ev.type === 'challenge') {
+    return ev.caught
+      ? { side: other(ev.side), card: C[ev.actualId], label: `抓到吹牛！宣告「${ev.name}」其實是`, bad: true }
+      : { side: other(ev.side), card: C[ev.asId], label: '質疑失敗！是真的' };
+  }
+  if (ev.type === 'ult') return { side: ev.side, ult: ev.name, label: ev.side === me ? '你的大絕招' : '對手的大絕招' };
+  return null;
+}
+
+async function animateEvents(events) {
+  let casted = false;
+  for (const ev of events) {
+    const c = castFor(ev);
+    if (c) {
+      if (casted) await sleep(900); // 上一張的效果看得到，再展示下一張
+      holdBoard = true;
+      await showCast(c);
+      holdBoard = false;
+      render();
+      casted = true;
+    }
+    fxEvent(ev); // 卡牌收起後立刻播效果：浮動數字、震動、表情
+  }
+  if (casted) await sleep(700);
+}
+
+// 卡牌放大展示，可點一下跳過
+function showCast(c) {
+  return new Promise((resolve) => {
+    const box = $('#cast');
+    const sideCls = c.card && c.card.side !== 'shared' ? c.card.side : c.side;
+    let body;
+    if (c.facedown) body = `<div class="cast-card facedown ${c.side}"><div class="back">🂠</div><div class="nm">？？？</div></div>`;
+    else if (c.ult) body = `<div class="cast-card ult ${c.side}"><img class="mascot-art" src="assets/${c.side}_win.webp" alt=""><div class="nm">${c.ult}</div></div>`;
+    else body = `<div class="cast-card ${sideCls}"><img class="art" src="${art(c.card.id)}" alt="">
+      <div class="nm">${c.card.name}</div><div class="tx">${c.card.text}</div></div>`;
+    box.innerHTML = `<div class="cast-label ${c.bad ? 'bad' : ''} ${c.side}">${c.label}</div>${body}`;
+    box.className = `cast-${c.side === me ? 'me' : 'opp'}`;
+    sfx.card();
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      box.classList.add('out');
+      setTimeout(() => { box.className = 'hidden'; box.innerHTML = ''; resolve(); }, 260);
+    };
+    castSkip = finish;
+    box.onclick = finish;
+    setTimeout(finish, 1500);
+  });
+}
+
+// 浮動數字：+5 綠／藍、-3 紅
+function floatNum(side, text, bad = false) {
+  const el = document.createElement('div');
+  el.className = `float-num ${bad ? 'bad' : side} ${side === me ? 'at-me' : 'at-opp'}`;
+  el.textContent = text;
+  el.style.left = `${40 + Math.random() * 20}%`;
+  $('#floats').appendChild(el);
+  setTimeout(() => el.remove(), 1700);
+}
+function shake() {
+  const b = $('#battle');
+  b.classList.remove('shake');
+  void b.offsetWidth;
+  b.classList.add('shake');
+}
+
+// 單一事件的效果：音效、提示、浮動數字、表情
+function fxEvent(ev) {
+  {
     const who = ev.side === me ? '我方' : '對手';
     switch (ev.type) {
-      case 'play':
-        sfx.card();
-        if (ev.side === opp && !ev.hidden) toast(`對手打出「${ev.name}」`, opp);
-        break;
+      case 'play': break; // 已在展示卡牌時處理
       case 'pull':
-        if (ev.n > 0) { sfx.pull(); toast(`${who} +${ev.n} 人`, ev.side); pulse(ev.side, 'joy'); }
+        if (ev.n > 0) { sfx.pull(); floatNum(ev.side, `+${ev.n}`); pulse(ev.side, 'joy'); }
         break;
       case 'poach':
-        if (ev.n > 0) { sfx.hit(); toast(`${who}挖走 ${ev.n} 人`, ev.side); pulse(other(ev.side), 'hit'); }
+        if (ev.n > 0) {
+          sfx.hit(); shake();
+          floatNum(ev.side, `+${ev.n}`); floatNum(other(ev.side), `-${ev.n}`, true);
+          toast(`${who}挖走 ${ev.n} 人`, ev.side); pulse(other(ev.side), 'hit');
+        }
         break;
       case 'encircle':
-        if (ev.n > 0) { sfx.hit(); toast(`${ev.side === me ? '我方' : '對手'}${ev.msg}`, other(ev.side)); pulse(ev.side, 'hit'); }
+        if (ev.n > 0) {
+          sfx.hit(); floatNum(ev.side, `-${ev.n}`, true); floatNum(other(ev.side), `+${ev.n}`);
+          toast(`${ev.side === me ? '我方' : '對手'}${ev.msg}`, other(ev.side)); pulse(ev.side, 'hit');
+        }
         break;
       case 'status':
         sfx.status();
@@ -272,13 +373,13 @@ function playEvents() {
       case 'timeout': toast(`${who}${ev.msg}`, ev.side); break;
       case 'declare':
         sfx.card();
-        if (ev.side === me) toast(`你蓋牌宣告「${ev.name}」`, me);
         break;
       case 'pass':
-        toast(ev.side === me ? `你放行了，「${ev.name}」生效` : `對手放行，「${ev.name}」生效`, other(ev.side));
-        break;
+        break; // 已用展示卡牌呈現
       case 'challenge': {
         sfx.trap();
+        if (ev.n > 0) floatNum(ev.caught ? other(ev.side) : ev.side, `-${ev.n}`, true);
+        if (ev.caught) { floatNum(other(ev.side), `聲量 -${RULES.caughtVoice}`, true); shake(); }
         const iChallenged = ev.side === me;
         const lost = (n) => (n > 0 ? `-${n} 人、` : '');
         if (ev.caught) {
@@ -303,10 +404,11 @@ function playEvents() {
 }
 
 // ── 我方回合 ─────────────────────────────
-function startMyTurn() {
-  playEvents();
+async function startMyTurn() {
+  const myGen = gen;
   render();
-  if (game.over) return;
+  await playEvents();
+  if (myGen !== gen || !game || game.over) return;
   toast(`你的回合（第 ${game.round} 回合）`, me);
   timeLeft = CONFIG.TURN_SECONDS;
   updateTimer();
@@ -325,23 +427,35 @@ function updateTimer() {
   t.classList.toggle('low', timeLeft <= 10);
 }
 
-function doPlay(uid) {
+async function doPlay(uid) {
   if (!isMyTurn()) return;
   if (mode === 'online') { send({ t: 'play', uid }); closeModal(); return; }
   if (!playCard(game, me, uid)) return;
   closeModal();
-  playEvents();
+  const myGen = gen;
   render();
+  await playEvents();
+  if (myGen === gen) afterMyAction();
 }
 
-function endMyTurn() {
+// 主牌打完會自動換人；魔法卡不佔回合，繼續我的回合
+function afterMyAction() {
+  if (!game || game.over) return;
+  if (game.current !== me) { clearInterval(timerId); nextPhase(); }
+  else render();
+}
+
+async function endMyTurn() {
   if (!game || game.over || game.current !== me) return;
   if (mode === 'online') { send({ t: 'end' }); return; }
+  if (game.pending) return;
   clearInterval(timerId);
+  const saved = game.players[me].ap;
   endTurn(game);
-  playEvents();
-  render();
-  nextPhase();
+  toast(timeLeft > 0 ? `跳過，行程點 ${saved} 點存著` : '時間到，自動跳過', me);
+  const myGen = gen;
+  await playEvents();
+  if (myGen === gen) nextPhase();
 }
 
 // ── 電腦回合：一步一步播放 ───────────────
@@ -350,28 +464,35 @@ async function runAI() {
   busy = true;
   clearInterval(timerId);
   $('#timer').textContent = '…';
-  playEvents();
   render();
-  await sleep(900);
-  for (let i = 0; i < 14; i++) {
+  await playEvents();
+  await sleep(1100); // 電腦「想一下」，節奏不要太快
+  for (let i = 0; i < 6; i++) {
     if (myGen !== gen || game.over) return;
+    if (game.current !== opp) break; // 主牌打完已經換人
     const a = aiStep(game, opp);
     if (!a) break;
-    playEvents();
     render();
+    await playEvents();
+    if (myGen !== gen) return;
     if (game.pending) {
       const challenge = await askChallenge(Date.now() + RULES.respondSeconds * 1000);
       if (myGen !== gen || game.over) return;
       respond(game, me, challenge);
-      playEvents();
       render();
+      await playEvents();
     }
-    await sleep(1000);
+    await sleep(700);
   }
   if (myGen !== gen || game.over) { busy = false; return; }
-  endTurn(game);
+  if (game.current === opp) {
+    const skipped = game.players[opp].ap;
+    endTurn(game);
+    toast(`對手跳過，存了 ${skipped} 點行程點`, opp);
+    await playEvents();
+  }
   busy = false;
-  nextPhase();
+  if (myGen === gen) nextPhase();
 }
 
 // ── 彈窗 ─────────────────────────────────
@@ -395,9 +516,9 @@ function openCard(uid) {
   else if (!ok) why = `行程點不足（需要 ${cost}）`;
   openModal(`
     <div class="big-card ${c.side === 'shared' ? '' : c.side}">
-      <div class="ico">${TYPE[c.type][0]}</div>
-      <div class="nm">${c.name}</div>
-      <div class="meta">${TYPE[c.type][1]}卡・${RAR_NAME[c.rarity]}・行程點 ${cost}${cost > c.cost ? '（被追問 +1）' : ''}</div>
+      <img class="art" src="${art(c.id)}" alt="">
+      <div class="nm">${TYPE[c.type][0]} ${c.name}</div>
+      <div class="meta">${TYPE[c.type][1]}卡・${RAR_NAME[c.rarity]}・行程點 ${cost}${cost > c.cost ? '（被追問 +1）' : ''}${c.type === 'magic' ? '・不佔回合' : '・打出後換對手'}</div>
       <div class="tx">${c.text}</div>
       <div class="fl">${c.flavor}</div>
     </div>
@@ -431,10 +552,10 @@ function openDeclare(uid) {
     const cost = cardCost(game, me, c);
     const ok = canDeclare(game, me, uid, c.id);
     return `<button class="decl-item ${c.side === 'shared' ? '' : c.side}" data-as="${c.id}" ${ok ? '' : 'disabled'}>
-      <span class="cost">${cost}</span><b>${c.name}${c.id === real.id ? '<em>（說實話）</em>' : ''}</b><span>${c.short || c.text}</span></button>`;
+      <img class="thumb" src="${art(c.id)}" alt="" loading="lazy"><span class="cost">${cost}</span><b>${c.name}${c.id === real.id ? '<em>（說實話）</em>' : ''}</b><span>${c.short || c.text}</span></button>`;
   }).join('');
   openModal(`<h2>蓋牌宣告</h2>
-    <p class="small">手上這張是「${real.name}」。要宣告成哪一張？行程點照宣告的那張付（你有 ${ap} 點）。</p>
+    <p class="small">手上這張是「${real.name}」。要宣告成哪一張？行程點照宣告的那張付（你有 ${ap} 點）。宣告後換對手。</p>
     <div class="decl-list">${items}</div>
     <p class="small">吹牛被抓：你 -${RULES.bluffPenalty} 人（聲量爆表時加倍）、聲量 -${RULES.caughtVoice}，效果作廢。對手冤枉你：對手 -${RULES.wrongChallenge} 人，效果照常。</p>
     <div class="btns"><button class="btn" id="m-back">返回</button></div>`, { pause: true });
@@ -447,16 +568,18 @@ async function doDeclare(uid, asId) {
   if (mode === 'online') { send({ t: 'declare', uid, as: asId }); closeModal(); return; }
   if (!declareCard(game, me, uid, asId)) return;
   closeModal();
-  playEvents();
-  render();
   const myGen = gen;
-  showWaitingRespond(Date.now() + 1500);
-  await sleep(1200 + Math.random() * 900); // 電腦想一下
+  render();
+  await playEvents();
+  if (myGen !== gen || !game || !game.pending) return;
+  showWaitingRespond(Date.now() + 1800);
+  await sleep(1300 + Math.random() * 900); // 電腦想一下
   if (myGen !== gen || !game || !game.pending) return;
   respond(game, opp, aiRespond(game, opp));
   closeModal();
-  playEvents();
   render();
+  await playEvents();
+  if (myGen === gen) afterMyAction();
 }
 
 // 對手蓋牌宣告：跳出質疑／放行，限時 8 秒，時間到視同放行
@@ -475,7 +598,8 @@ function askChallenge(deadlineAt) {
     };
     openModal(`<h2>對手蓋牌宣告</h2>
       <div class="big-card ${as.side === 'shared' ? '' : as.side} facedown">
-        <div class="ico">🂠</div><div class="nm">宣告：${as.name}</div>
+        <div class="art-box"><img class="art" src="${art(as.id)}" alt=""><span class="stamp">宣告</span></div>
+        <div class="nm">${as.name}</div>
         <div class="meta">${TYPE[as.type][1]}卡・行程點 ${as.cost}</div><div class="tx">${as.text}</div>
       </div>
       <div class="count-ring small-ring" id="m-rcount">${RULES.respondSeconds}</div>
@@ -555,13 +679,14 @@ function openRules(first = false) {
   openModal(`<h2>怎麼玩</h2>
     <ul>
       <li>場上有 100 位灰色<b>中間選民</b>，先拉到 <b>${RULES.winAt} 人（過半）</b>就贏；第 ${RULES.maxRounds} 回合結束時，支持者多的一方獲勝。</li>
-      <li>每回合有<b>行程點</b>（金色圓點），等於回合數＋1，最多 10 點。出牌要花行程點。</li>
-      <li>每回合抽 2 張牌，手牌最多 5 張。牌庫無限、完全隨機。</li>
-      <li>點手牌看說明，再按「打出」。做完按「結束回合」，每回合限時 ${CONFIG.TURN_SECONDS} 秒。</li>
+      <li><b>一回合出一張牌</b>：點手牌看說明，按「打出」，打完就換對手。不想出可以按「跳過」。每回合限時 ${CONFIG.TURN_SECONDS} 秒。</li>
+      <li><b>行程點</b>（金色圓點）每回合 +${RULES.apPerTurn}，沒用完會存著，最多 ${RULES.apCap} 點。存起來就能打大牌。</li>
+      <li>✨<b>魔法卡不佔回合</b>：用完還可以再出一張牌（每回合最多 1 張魔法卡）。大絕招也不佔回合。</li>
+      <li>每回合抽 1 張牌，手牌最多 5 張。牌庫無限、完全隨機。</li>
       <li><b>聲量條</b>集滿 100 會出現「聲量爆表」：發動大絕招（每招每局一次），或進入爆表狀態 2 回合拉票 +50%。</li>
       <li>越後期，中間選民越難拉。被攻擊 2 次會觸發<b>同情票</b>，下次拉票加倍。</li>
       <li>卡牌：📣攻擊 👥召喚 ✨魔法 🪤陷阱（蓋著等對方觸發）🌀狀態 🎪場地。</li>
-      <li><b>蓋牌宣告</b>：點手牌選「蓋牌宣告」，把牌蓋著打出並宣告成任何一張牌（行程點照宣告的付），可以說實話也可以吹牛，每回合 1 次。</li>
+      <li><b>蓋牌宣告</b>：點手牌選「蓋牌宣告」，把牌蓋著打出並宣告成任何一張牌（行程點照宣告的付），可以說實話也可以吹牛。算這回合出的牌。</li>
       <li><b>質疑</b>：對手蓋牌宣告時你有 ${RULES.respondSeconds} 秒決定。質疑要付下回合行程點 -1：抓到吹牛，對手 -${RULES.bluffPenalty} 人、聲量 -${RULES.caughtVoice}，效果作廢；猜錯，你 -${RULES.wrongChallenge} 人。</li>
     </ul>
     <div class="btns"><button class="btn primary" id="m-ok">${first ? '開始！' : '知道了'}</button></div>`, { pause: true });

@@ -8,6 +8,7 @@
 - `worker/`：連線伺服器（Worker + Durable Objects 休眠 API）：配對大廳、房間、伺服器權威計時與結算
 - `tools/sim.mjs`：電腦對電腦平衡模擬（`npm run sim`）
 - `tools/cutout.py`：角色圖去背
+- `site/assets/cards/`：26 張卡圖（Higgsfield GPT Image 2.5 生成，320×240 WebP）
 - `tools/shot.py`：手機尺寸自動試玩截圖
 
 ## 部署
@@ -27,7 +28,7 @@ repo secrets：`CLOUDFLARE_API_TOKEN`（Pages Edit、Workers Scripts Edit）、`
 - 隨機配對優先配不同陣營，等 12 秒以上改為不分陣營；畫面倒數 30 秒，沒配到自動改跟電腦對戰（`site/js/config.js` 的 `MATCH_SECONDS`）
 - 被配對但 30 秒內沒連進房間的玩家判負，避免對手對著空位玩
 - 朋友房 5 碼房號，10 分鐘沒人加入自動關閉
-- 每回合 60 秒（伺服器計時，截止後 1 秒寬限）；斷線 30 秒判負；單局最長 20 分鐘
+- 一回合一個動作（打一張主牌或蓋牌宣告後自動換人；魔法卡、大絕招不佔回合）；每回合 30 秒（伺服器計時，截止後 1 秒寬限）；斷線 30 秒判負；單局最長 20 分鐘
 - 同時房間上限 200，額滿排隊；每個連線每秒最多 8 則訊息
 - 對手手牌、蓋牌、亂數狀態不會傳到前端；蓋牌宣告的真牌只有出牌方收得到
 - 蓋牌宣告：對手 8 秒內決定質疑或放行，這段時間出牌方的 60 秒暫停；沒回應視同放行
@@ -40,6 +41,7 @@ python3 tools/pvp_test.py           # 雙人配對、重連、朋友房
 python3 tools/pvp_timeout_test.py   # 逾時與斷線判負（約 100 秒）
 python3 tools/match_timeout_test.py # 配對倒數改電腦、幽靈對手判負（約 80 秒）
 python3 tools/challenge_test.py     # 質疑：對電腦、連線吹牛被抓、說實話逾時放行、真牌不外洩
+python3 tools/fx_test.py            # 一回合一張牌、出牌演出、卡圖、打完整局
 ```
 
 ## 單機版備用設定（site/js/config.js，需重新部署）

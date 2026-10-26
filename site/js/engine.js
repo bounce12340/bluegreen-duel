@@ -9,8 +9,11 @@ export const RULES = {
   maxRounds: 12,
   handMax: 5,
   openingHand: 4,
-  drawPerTurn: 2,
+  drawPerTurn: 1,     // 一回合只出一張主牌，所以只抽 1 張
+  apPerTurn: 3,       // 行程點存錢制：每回合 +3，可累積
   apCap: 10,
+  // 一回合一個動作：打一張主牌（攻擊、召喚、狀態、場地、陷阱）或蓋牌宣告後自動換人；
+  // 魔法卡、大絕招、聲量爆表不佔回合（魔法卡每回合最多 1 張）
   pityTurns: 3,       // 連續幾回合沒抽到攻擊卡就保底
   hitsForSympathy: 2,
   // 質疑
@@ -49,6 +52,7 @@ export function createGame({ seed = Date.now(), firstSide, disabledCards = [] } 
     players: { blue: newPlayer('blue'), green: newPlayer('green') },
     first: null, current: null, field: null, events: [], log: [],
     pending: null, declaredThisTurn: false, // 蓋牌宣告等待對手回應
+    magicThisTurn: false,
     poolIds: CARDS.filter((c) => !disabledCards.includes(c.id)).map((c) => c.id),
     nextUid: 1,
   };
@@ -56,8 +60,7 @@ export function createGame({ seed = Date.now(), firstSide, disabledCards = [] } 
   s.current = s.first;
   const second = other(s.first);
   for (let i = 0; i < RULES.openingHand; i++) { drawCard(s, s.first); drawCard(s, second); }
-  drawCard(s, second); // 後手補償：多 1 張牌、聲量 30
-  s.players[second].voice = 30;
+  drawCard(s, second); // 後手補償：多 1 張牌（先手首回合不抽牌）
   startTurn(s);
   return s;
 }
@@ -168,8 +171,9 @@ function startTurn(s) {
   s.declaredThisTurn = false;
   const p = s.players[side];
   const opp = s.players[other(side)];
-  p.ap = Math.min(RULES.apCap, s.round + 1) + p.apBonus;
+  p.ap = Math.max(0, Math.min(RULES.apCap, p.ap + RULES.apPerTurn + p.apBonus));
   p.apBonus = 0;
+  s.magicThisTurn = false;
 
   // 對方的「下雨了」在這回合開始時觸發
   const rainIdx = opp.traps.findIndex((t) => t.fx.trap === 'rain');
@@ -185,7 +189,7 @@ function startTurn(s) {
   }
 
   // 抽牌與保底
-  const draws = RULES.drawPerTurn + p.emptyHandBonus - (s.turnIndex === 0 ? 1 : 0); // 先手首回合少抽 1 張
+  const draws = RULES.drawPerTurn + p.emptyHandBonus - (s.turnIndex === 0 ? 1 : 0); // 先手首回合不抽牌
   p.emptyHandBonus = 0;
   let gotAttack = false;
   for (let i = 0; i < draws; i++) {
@@ -225,7 +229,7 @@ function startTurn(s) {
 
 export function endTurn(s) {
   if (s.over) return;
-  if (s.pending) respond(s, other(s.pending.side), false); // 沒回應視同放行
+  if (s.pending) { respond(s, other(s.pending.side), false); return; } // 沒回應視同放行（結算後會自動換人）
   const side = s.current;
   const p = s.players[side];
   for (const st of p.statuses) st.turns -= 1;
@@ -273,7 +277,13 @@ export function canPlay(s, side, uid) {
   const c = p.hand.find((x) => x.uid === uid);
   if (!c) return false;
   if (c.type === 'trap' && p.traps.length >= 2) return false;
+  if (c.type === 'magic' && s.magicThisTurn) return false;
   return cardCost(s, side, c) <= p.ap;
+}
+
+// 主牌打完就換人；魔法卡不佔回合
+function afterMainAction(s) {
+  if (!s.over && !s.pending) endTurn(s);
 }
 
 export function playCard(s, side, uid) {
@@ -288,6 +298,8 @@ export function playCard(s, side, uid) {
   if (c.type === 'trap') emit(s, { type: 'play', side, hidden: true }); // 陷阱是蓋牌，不公開名稱
   else emit(s, { type: 'play', side, card: c.id, name: c.name, msg: `${side === 'blue' ? '藍' : '綠'}方打出「${c.name}」` });
   resolveEffect(s, side, c);
+  if (c.type === 'magic') s.magicThisTurn = true;
+  else afterMainAction(s);
   return true;
 }
 
@@ -394,8 +406,9 @@ export function respond(s, side, challenge) {
   s.pending = null;
 
   if (!challenge) {
-    emit(s, { type: 'pass', side, name: as.name, msg: `放行，「${as.name}」生效` });
+    emit(s, { type: 'pass', side, asId: as.id, name: as.name, msg: `放行，「${as.name}」生效` });
     resolveEffect(s, liarSide, as);
+    afterMainAction(s);
     return true;
   }
 
@@ -405,7 +418,7 @@ export function respond(s, side, challenge) {
     const n = Math.min(RULES.wrongChallenge, me.supporters);
     me.supporters -= n;
     liar.voice = Math.min(100, liar.voice + RULES.honestVoice);
-    emit(s, { type: 'challenge', side, caught: false, n, name: as.name, msg: `質疑失敗！「${as.name}」是真的` });
+    emit(s, { type: 'challenge', side, caught: false, n, asId: as.id, name: as.name, msg: `質疑失敗！「${as.name}」是真的` });
     resolveEffect(s, liarSide, as);
   } else {
     const penalty = RULES.bluffPenalty * (hasStatus(liar, 'burst') ? 2 : 1);
@@ -413,10 +426,11 @@ export function respond(s, side, challenge) {
     liar.supporters -= n;
     liar.voice = Math.max(0, liar.voice - RULES.caughtVoice);
     me.voice = Math.min(100, me.voice + RULES.catchVoice);
-    emit(s, { type: 'challenge', side, caught: true, n, name: as.name, actual: actual.name,
+    emit(s, { type: 'challenge', side, caught: true, n, asId: as.id, actualId: actual.id, name: as.name, actual: actual.name,
       msg: `抓到吹牛！宣告「${as.name}」其實是「${actual.name}」` });
     checkWin(s);
   }
+  afterMainAction(s);
   return true;
 }
 

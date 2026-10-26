@@ -98,10 +98,12 @@ with sync_playwright() as p:
     B.wait_for_selector("#m-challenge", timeout=5000)
     B.screenshot(path=f"{OUT}/b_prompt.png")
     A.screenshot(path=f"{OUT}/a_wait.png")
-    B.click("#m-challenge"); A.wait_for_timeout(1500)
-    toasts_a = A.inner_text("#toasts"); toasts_b = B.inner_text("#toasts")
-    print("A 看到：", toasts_a.replace("\n", "｜")[:80])
-    print("B 看到：", toasts_b.replace("\n", "｜")[:80])
+    B.click("#m-challenge"); A.wait_for_timeout(600)
+    cast_a = A.inner_text("#cast") if A.is_visible("#cast") else "（沒有翻牌演出）"
+    cast_b = B.inner_text("#cast") if B.is_visible("#cast") else "（沒有翻牌演出）"
+    B.screenshot(path=f"{OUT}/b_reveal.png")
+    print("A 看到翻牌：", cast_a.replace("\n", "｜")[:80])
+    print("B 看到翻牌：", cast_b.replace("\n", "｜")[:80])
     leaked = any('"cardId"' in f for f in frames_b)
     print("B 收到的資料含 A 的真牌（cardId）：", leaked)
     # 下一回合 A 說實話、B 不回應（找得到付得起的真牌才宣告，最多試 4 回合）
@@ -121,7 +123,6 @@ with sync_playwright() as p:
     t_before = A.inner_text("#timer")
     A.wait_for_timeout(10000)
     print("B 不回應 10 秒後，B 的質疑視窗還在：", B.is_visible("#m-challenge"), "｜A 計時器：", t_before, "→", A.inner_text("#timer"))
-    print("A 看到：", A.inner_text("#toasts").replace("\n", "｜")[:80])
     A.screenshot(path=f"{OUT}/a_after_pass.png")
     b.close()
 print("errors:", errors[:8])

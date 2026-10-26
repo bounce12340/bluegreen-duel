@@ -1,4 +1,5 @@
 :root {
+  --dock-h: min(38dvh, 252px);
   --blue: #2f6fd6;
   --blue-soft: #dce9ff;
   --green: #1f9a55;
@@ -98,25 +99,29 @@ body.in-battle #footer { display: none; }
 /* 手牌區 */
 .dock { position: absolute; z-index: 6; left: 0; right: 0; bottom: 0; height: var(--dock-h); padding: 6px 8px calc(8px + env(safe-area-inset-bottom)); background: linear-gradient(rgba(255,253,248,.0), rgba(255,253,248,.95) 22%); display: flex; flex-direction: column; gap: 6px; justify-content: flex-end; }
 .dock-row { display: flex; align-items: center; gap: 8px; }
-.ap { display: flex; gap: 3px; flex-wrap: wrap; flex: 1; align-items: center; font-size: 12px; font-weight: 700; }
-.ap i { width: 13px; height: 13px; border-radius: 50%; background: var(--gold); border: 2px solid #b67f00; display: inline-block; }
+.ap { display: flex; gap: 2px 6px; flex-wrap: wrap; flex: 1; align-items: center; font-size: 12px; font-weight: 700; min-width: 0; }
+.ap-dots { display: inline-flex; gap: 2px; }
+.ap-hint { flex-basis: 100%; font-weight: 400; }
+.ap i { width: 11px; height: 11px; border-radius: 50%; background: var(--gold); border: 2px solid #b67f00; display: inline-block; }
 .ap i.used { background: #e6e1d4; border-color: #c9c2b0; }
 .end-btn, .ult-btn { min-height: 42px; border-radius: 999px; padding: 0 16px; font-weight: 900; border: 0; box-shadow: 0 3px 0 rgba(0,0,0,.18); }
 .end-btn { background: var(--ink); color: #fff; }
 .end-btn:disabled { opacity: .4; }
 .ult-btn { background: linear-gradient(90deg, #ffb347, #ff5e3a); color: #fff; animation: pulse .6s infinite alternate; }
-.hand { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; min-height: 0; flex: 1; max-height: 150px; }
-.card { position: relative; border-radius: 10px; border: 3px solid var(--gray); background: var(--paper); padding: 18px 4px 4px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; overflow: hidden; box-shadow: 0 3px 0 rgba(0,0,0,.15); transition: transform .15s; min-height: 0; }
+.hand { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; min-height: 0; flex: 1; max-height: 160px; }
+.card { position: relative; border-radius: 10px; border: 3px solid var(--gray); background: var(--paper); padding: 3px 3px 4px; display: flex; flex-direction: column; align-items: stretch; text-align: center; gap: 2px; overflow: hidden; box-shadow: 0 3px 0 rgba(0,0,0,.15); transition: transform .15s; min-height: 0; }
 .card.blue { border-color: var(--blue); }
 .card.green { border-color: var(--green); }
 .card.cant { filter: grayscale(.7); opacity: .6; }
 .card:not(.cant):active { transform: translateY(-4px); }
-.card .cost { position: absolute; top: 2px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--gold); border: 2px solid #b67f00; font-weight: 900; font-size: 12px; line-height: 16px; }
+.card .art-wrap { position: relative; display: block; }
+.card .art { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 6px; background: #e9edf3; }
+.card .cost { position: absolute; top: -2px; left: -2px; width: 20px; height: 20px; border-radius: 50%; background: var(--gold); border: 2px solid #b67f00; font-weight: 900; font-size: 12px; line-height: 16px; }
 .card .cost.up { background: var(--danger); border-color: #8f2a22; color: #fff; }
-.card .rar { position: absolute; top: 3px; right: 4px; font-size: 10px; color: #c28a00; }
-.card .ico { font-size: 22px; line-height: 1; }
+.card .type { position: absolute; right: 1px; bottom: 1px; font-size: 12px; background: rgba(255,255,255,.85); border-radius: 6px; padding: 0 2px; }
+.card .rar { color: #c28a00; font-size: 9px; margin-left: 1px; }
 .card .nm { font-weight: 900; font-size: 11px; line-height: 1.15; }
-.card .tx { font-size: 9.5px; line-height: 1.2; opacity: .85; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.card .tx { font-size: 9.5px; line-height: 1.2; opacity: .85; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .card.epic { background: linear-gradient(160deg, #fff7d6, var(--paper) 50%); }
 
 /* 彈窗 */
@@ -186,3 +191,45 @@ body.in-battle #footer { display: none; }
 .decl-item .cost { grid-row: span 2; align-self: center; width: 24px; height: 24px; border-radius: 50%; background: var(--gold); border: 2px solid #b67f00; font-weight: 900; font-size: 12px; display: grid; place-items: center; }
 .decl-item b { font-size: 14px; } .decl-item b em { font-style: normal; color: var(--green); font-size: 12px; margin-left: 4px; }
 .decl-item span:last-child { font-size: 12px; opacity: .75; }
+
+/* 卡圖 */
+.big-card .art { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 12px; margin-bottom: 8px; }
+.big-card .nm { margin-top: 2px; }
+.art-box { position: relative; }
+.art-box .stamp { position: absolute; top: 8px; right: 8px; background: #2a2f45; color: #ffe27a; font-weight: 900; padding: 2px 10px; border-radius: 999px; transform: rotate(6deg); }
+.big-card.facedown .art { filter: saturate(.85); }
+.decl-item { grid-template-columns: 56px 26px 1fr; }
+.decl-item .thumb { grid-row: span 2; width: 56px; height: 42px; object-fit: cover; border-radius: 6px; align-self: center; }
+
+/* 出牌演出 */
+#cast { position: absolute; inset: 0; z-index: 12; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: rgba(20,28,40,.35); }
+#cast.hidden { display: none; }
+#cast .cast-card { width: min(64%, 260px); background: var(--paper); border: 5px solid var(--gray); border-radius: 18px; padding: 8px; text-align: center; box-shadow: 0 16px 40px rgba(0,0,0,.35); }
+#cast .cast-card.blue { border-color: var(--blue); } #cast .cast-card.green { border-color: var(--green); }
+#cast .cast-card .art { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; }
+#cast .cast-card .nm { font-size: 22px; font-weight: 900; margin-top: 6px; }
+#cast .cast-card .tx { font-size: 14px; font-weight: 700; opacity: .8; }
+#cast .cast-card.facedown { aspect-ratio: 3 / 4; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: repeating-linear-gradient(135deg, #2a2f45 0 14px, #343a55 14px 28px); color: #ffe27a; }
+#cast .cast-card.facedown .back { font-size: 80px; }
+#cast .cast-card.ult { background: radial-gradient(circle, #fff3c4, #ffb347 70%); border-color: var(--gold); }
+#cast .cast-card.ult .mascot-art { width: 70%; display: block; margin: 0 auto; }
+#cast .cast-label { font-weight: 900; font-size: 16px; color: #fff; padding: 6px 14px; border-radius: 999px; background: var(--ink); }
+#cast .cast-label.blue { background: var(--blue); } #cast .cast-label.green { background: var(--green); }
+#cast .cast-label.bad { background: var(--danger); }
+#cast.cast-me > * { animation: castFromBottom .35s cubic-bezier(.2,.9,.3,1.2) both; }
+#cast.cast-opp > * { animation: castFromTop .35s cubic-bezier(.2,.9,.3,1.2) both; }
+#cast.out > * { animation: castOut .26s ease-in both; }
+@keyframes castFromBottom { from { transform: translateY(45vh) scale(.4) rotate(-8deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes castFromTop { from { transform: translate(25vw, -40vh) scale(.4) rotate(8deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes castOut { to { transform: scale(.6); opacity: 0; } }
+
+/* 浮動數字與震動 */
+#floats { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
+.float-num { position: absolute; transform: translateX(-50%); font-size: 34px; font-weight: 900; -webkit-text-stroke: 2px #fff; paint-order: stroke fill;
+  text-shadow: 0 3px 0 rgba(0,0,0,.2); animation: floatUp 1.6s ease-out forwards; white-space: nowrap; }
+.float-num.at-me { top: 54%; } .float-num.at-opp { top: 36%; }
+.float-num.blue { color: var(--blue); } .float-num.green { color: var(--green); } .float-num.bad { color: var(--danger); font-size: 28px; }
+@keyframes floatUp { 0% { opacity: 0; transform: translate(-50%, 20px) scale(.6); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1.15); } 30% { transform: translate(-50%, -6px) scale(1); } 100% { opacity: 0; transform: translate(-50%, -70px); } }
+#battle.shake { animation: screenShake .4s; }
+@keyframes screenShake { 0%,100% { transform: none; } 20% { transform: translate(-6px, 2px); } 40% { transform: translate(6px, -2px); } 60% { transform: translate(-4px, 1px); } 80% { transform: translate(4px, 0); } }

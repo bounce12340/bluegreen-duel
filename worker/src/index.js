@@ -10,7 +10,7 @@ import {
 import { checkName, cleanName } from '../../site/js/names.js';
 
 const MAX_ROOMS = 200;
-const TURN_MS = 60_000;
+const TURN_MS = 30_000;           // 一回合只出一張牌，30 秒
 const GRACE_MS = 1_000;            // 截止前 1 秒內送出的動作仍算數
 const RESPOND_MS = RULES.respondSeconds * 1000; // 對手決定要不要質疑的時間（出牌方的回合計時暫停）
 const DISCONNECT_MS = 30_000;      // 斷線超過 30 秒判負

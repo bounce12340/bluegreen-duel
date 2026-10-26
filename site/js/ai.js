@@ -60,7 +60,7 @@ export function aiTakeTurn(s, side, { autoEnd = true } = {}) {
       actions.push({ kind: 'respond', challenge: ch });
     }
   }
-  if (autoEnd && !s.over) endTurn(s);
+  if (autoEnd && !s.over && s.current === side) endTurn(s);
   return actions;
 }
 
@@ -74,13 +74,22 @@ export function aiStep(s, side) {
     return { kind: 'burst' };
   }
   const me = s.players[side];
-  let best = null, bestScore = 0.5;
+  // 魔法卡不佔回合，有用就先用
   for (const c of me.hand) {
-    if (!canPlay(s, side, c.uid)) continue;
-    const cost = Math.max(1, cardCost(s, side, c));
-    const score = cardValue(s, side, c) / cost;
+    if (c.type !== 'magic' || !canPlay(s, side, c.uid)) continue;
+    if (cardValue(s, side, c) >= 2) { playCard(s, side, c.uid); return { kind: 'play', uid: c.uid, id: c.id }; }
+  }
+  // 主牌：挑價值最高、付得起的；稍微偏好便宜的，留行程點
+  let best = null, bestScore = 1.5;
+  for (const c of me.hand) {
+    if (c.type === 'magic' || !canPlay(s, side, c.uid)) continue;
+    const score = cardValue(s, side, c) - 0.35 * cardCost(s, side, c);
     if (score > bestScore) { best = c; bestScore = score; }
   }
+  // 存錢：手上有付不起的大牌，而眼前的牌不怎麼樣，就跳過這回合
+  const big = me.hand.filter((c) => c.type !== 'magic' && cardCost(s, side, c) > me.ap && cardCost(s, side, c) <= me.ap + RULES.apPerTurn)
+    .reduce((a, c) => (!a || cardValue(s, side, c) > cardValue(s, side, a) ? c : a), null);
+  if (big && (!best || cardValue(s, side, best) < 0.45 * cardValue(s, side, big))) best = null;
   const bluff = planDeclare(s, side, best);
   if (bluff) {
     declareCard(s, side, bluff.uid, bluff.asId);
@@ -98,7 +107,7 @@ function planDeclare(s, side, bestNormal) {
   const hand = me.hand.filter((c) => c.type !== 'trap');
   if (!hand.length) return null;
   // 說實話的釣魚：強牌偶爾蓋著打
-  if (bestNormal && bestNormal.type !== 'trap' && cardValue(s, side, bestNormal) >= 4 && rand(s) < 0.45
+  if (bestNormal && bestNormal.type !== 'trap' && cardValue(s, side, bestNormal) >= 4 && rand(s) < 0.2
       && canDeclare(s, side, bestNormal.uid, bestNormal.id)) {
     return { uid: bestNormal.uid, asId: bestNormal.id };
   }
@@ -113,7 +122,7 @@ function planDeclare(s, side, bestNormal) {
   if (!target || target.id === junk.id) return null;
   if (tv - cardValue(s, side, junk) < 4) return null;
   // 吹牛被抓會掉人，落後太多時不敢亂來；聲量爆表時懲罰加倍，也少吹
-  let p = 0.2;
+  let p = 0.12;
   if (hasStatus(me, 'burst')) p -= 0.15;
   if (me.supporters < RULES.bluffPenalty) p += 0.1; // 沒什麼人可掉，反而敢吹
   if (rand(s) >= p) return null;

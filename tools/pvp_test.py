@@ -32,19 +32,22 @@ def dismiss_help(pg):
 
 
 def take_turn(pg):
+    """出一張能出的牌（一回合一張，打完自動換人）；沒有就跳過。點擊和重繪可能撞到，所以都包 try。"""
     dismiss_help(pg)
-    for _ in range(5):
+    if pg.is_visible("#m-pass"):
+        pg.click("#m-pass"); return
+    try:
         cs = pg.query_selector_all(".card:not(.cant)")
-        if not cs:
-            break
-        cs[0].click(); pg.wait_for_timeout(150)
-        if pg.is_visible("#m-play") and pg.is_enabled("#m-play"):
-            pg.click("#m-play")
-        elif pg.is_visible("#m-cancel"):
-            pg.click("#m-cancel")
-        pg.wait_for_timeout(400)
-    if pg.is_enabled("#end-btn"):
-        pg.click("#end-btn")
+        if cs:
+            cs[0].click(timeout=2000); pg.wait_for_timeout(150)
+            if pg.is_visible("#m-play") and pg.is_enabled("#m-play"):
+                pg.click("#m-play", timeout=2000); return
+            if pg.is_visible("#m-cancel"):
+                pg.click("#m-cancel", timeout=2000)
+        if pg.is_enabled("#end-btn"):
+            pg.click("#end-btn", timeout=2000)
+    except Exception:
+        pass
 
 
 with sync_playwright() as p:
@@ -71,11 +74,11 @@ with sync_playwright() as p:
 
     # 對手手牌不該外洩：A 的頁面裡不能出現 B 的卡名
     reloaded = False
-    for turn in range(60):
+    for turn in range(120):
         if a.is_visible("#m-again") or g.is_visible("#m-again"):
             break
         for pg in (a, g):
-            if pg.evaluate("!document.querySelector('#end-btn').disabled"):
+            if pg.is_visible("#m-pass") or pg.evaluate("!document.querySelector('#end-btn').disabled"):
                 take_turn(pg)
         if turn == 3 and not reloaded:
             reloaded = True
