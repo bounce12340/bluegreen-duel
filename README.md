@@ -32,6 +32,11 @@ repo secrets：`CLOUDFLARE_API_TOKEN`（Pages Edit、Workers Scripts Edit）、`
 - 送給 Jev 的只有遊戲數字與卡牌效果，不含暱稱、IP 或個人資料；伺服器只接受固定格式的數字，不接受自由文字
 - 適應力測試：`node tools/adapt_test.mjs`
 
+## Jev 的其他用途（問題與規則都在 worker/src/jev.js）
+- **暱稱審核**：關鍵字清單先擋（免費）→ Jev 問 5 個是非題（冒充政治人物、冒充官方、拉票門檻 0.5；罵人、歧視門檻 0.7）。結果快取 7 天。Jev 失敗時只靠關鍵字，不擋玩家
+- **聯絡信箱分流**（worker/src/mail.js）：每 5 分鐘檢查 AgentMail 收件匣，Jev 判斷 8 個是非題，貼標籤；下架要求、官方來信、提到法律、附條件贊助 → 標「urgent」並轉寄作者；媒體來信也轉寄；Jev 失敗的信一律轉寄。需要 repo secrets `AGENTMAIL_API_KEY`、`NOTIFY_EMAIL`
+- **卡牌內容檢查**（tools/content_check.mjs，部署前自動跑）：每張卡與大絕招問 5 條合規規則＋「酸到哪一邊、有多酸」；合規機率 ≥ 0.7 不合格（停止部署）、0.3–0.7 請人工看；藍綠被酸總量差距 > 30% 提出警告。報告寫在 tools/content_report.md
+
 ## 連線規則
 - 隨機配對優先配不同陣營，等 12 秒以上改為不分陣營；畫面倒數 30 秒，沒配到自動改跟電腦對戰（`site/js/config.js` 的 `MATCH_SECONDS`）
 - 被配對但 30 秒內沒連進房間的玩家判負，避免對手對著空位玩

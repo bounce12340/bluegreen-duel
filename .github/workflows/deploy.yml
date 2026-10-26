@@ -24,6 +24,12 @@ jobs:
       - name: 平衡模擬（勝率超出 40–60% 就停止部署）
         run: node tools/sim.mjs 1000 | tee sim.txt
 
+      - name: 卡牌內容合規＋嘲諷對稱檢查（Jev）
+        env:
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        # 第一次先只報告；確認結果後拿掉 --report-only，不合格就停止部署
+        run: node tools/content_check.mjs --report-only
+
       - name: 建立 Pages 專案（已存在則略過）
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -49,6 +55,18 @@ jobs:
           else
             echo "repo secret TYPESAFE_API_KEY 沒有設定，略過"
           fi
+
+      - name: 寫入信箱分流設定（repo secret 有設才寫）
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: |
+          for name in AGENTMAIL_API_KEY NOTIFY_EMAIL; do
+            if [ -n "${!name}" ]; then printf '%s' "${!name}" | npx --yes wrangler@4 secret put "$name"; else echo "repo secret $name 沒有設定，略過"; fi
+          done
 
       - name: 部署網站（Pages + /api 轉接）
         env:

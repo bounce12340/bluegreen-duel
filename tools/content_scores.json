@@ -1,0 +1,610 @@
+[
+  {
+    "id": "s_street",
+    "card": {
+      "name": "掃街拜票",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "拉 4 人",
+      "flavor_text": "一條街，一百次握手。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "s_market",
+    "card": {
+      "name": "菜市場握手",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "拉 7 人",
+      "flavor_text": "攤販阿姨的眼神最誠實。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "s_forum",
+    "card": {
+      "name": "政見發表會",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "拉 9 人",
+      "flavor_text": "三分鐘，講完四年。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "s_buzz",
+    "card": {
+      "name": "網路聲量衝高",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "聲量 +25（不佔回合）",
+      "flavor_text": "留言區比你還早醒。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "s_staff",
+    "card": {
+      "name": "幕僚加班",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "抽 2 張（不佔回合）",
+      "flavor_text": "便當已經冷了。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "s_early",
+    "card": {
+      "name": "早起跑行程",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "行程點 +2（不佔回合）",
+      "flavor_text": "五點半的公園最熱鬧。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "s_flip",
+    "card": {
+      "name": "跑票",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "蓋牌。對方下一次拉票，一半的人走回中間",
+      "flavor_text": "說好的呢？"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "s_rain",
+    "card": {
+      "name": "下雨了",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "蓋牌。對方下回合開始時：造勢晚會立即結束；沒有晚會則行程點 -1",
+      "flavor_text": "雨衣發完了。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "s_expose",
+    "card": {
+      "name": "被起底",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "對方「被起底」1 回合：已蓋的陷阱全部翻開，且不能蓋牌宣告",
+      "flavor_text": "十年前的留言也翻得出來。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "s_gaffe",
+    "card": {
+      "name": "失言警報",
+      "belongs_to": "shared（雙方共用）",
+      "effect": "對方「失言」1 回合：不能發動絕招",
+      "flavor_text": "麥克風沒關。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "g_flash",
+    "card": {
+      "name": "青鳥快閃",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "effect": "拉 5 人，聲量 +10",
+      "flavor_text": "五分鐘集合，五分鐘解散。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "g_question",
+    "card": {
+      "name": "伯洋式追問",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "effect": "對方接下來 2 張卡各多花 1 行程點",
+      "flavor_text": "請問，第三點呢？"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.8,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "g_encircle",
+    "card": {
+      "name": "青鳥包圍",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "effect": "對方 2 回合內，每回合被拉走 2 人",
+      "flavor_text": "嘰嘰喳喳，從四面八方。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "g_folder",
+    "card": {
+      "name": "資料夾滿滿",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "effect": "從對方挖 5 人",
+      "flavor_text": "附件一共四十七頁。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "g_volunteer",
+    "card": {
+      "name": "志工大集合",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "effect": "3 回合內，每回合自動拉 3 人",
+      "flavor_text": "背心一穿就出門。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "g_youth",
+    "card": {
+      "name": "青年軍上線",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "effect": "2 回合內，每回合自動拉 3 人",
+      "flavor_text": "限動已發。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "g_rally",
+    "card": {
+      "name": "造勢晚會",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "effect": "場地：2 回合內，每回合額外拉 3 人",
+      "flavor_text": "燈一亮，全場站起來。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "g_speech",
+    "card": {
+      "name": "熱血演講",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "effect": "拉 14 人",
+      "flavor_text": "喉嚨啞了，聲量沒啞。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "b_news",
+    "card": {
+      "name": "市政快報",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "effect": "拉 5 人，聲量 +10",
+      "flavor_text": "圖卡已排版完成。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "b_dodge",
+    "card": {
+      "name": "問A答B",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "effect": "對方下一張攻擊卡 50% 機率打歪",
+      "flavor_text": "這個問題問得很好，我們來談談另一件事。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.8,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "b_encircle",
+    "card": {
+      "name": "市政團隊圍堵",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "effect": "對方 2 回合內，每回合被拉走 2 人",
+      "flavor_text": "工程帽小人，請就位。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "b_briefing",
+    "card": {
+      "name": "施政簡報",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "effect": "從對方挖 5 人",
+      "flavor_text": "投影片第一百零三張。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "b_service",
+    "card": {
+      "name": "里民服務隊",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "effect": "3 回合內，每回合自動拉 3 人",
+      "flavor_text": "路燈壞了？馬上到。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "b_editor",
+    "card": {
+      "name": "小編上線",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "effect": "2 回合內，每回合自動拉 3 人",
+      "flavor_text": "梗圖三分鐘出爐。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "b_rally",
+    "card": {
+      "name": "造勢晚會",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "effect": "場地：2 回合內，每回合額外拉 3 人",
+      "flavor_text": "燈一亮，全場站起來。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "b_vision",
+    "card": {
+      "name": "願景發表",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "effect": "拉 14 人",
+      "flavor_text": "藍圖展開，比桌子還大。"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "u_shield",
+    "card": {
+      "name": "抗中保台",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "kind": "special move",
+      "effect": "本回合拉票 ×2，並淨化自己 1 個負面狀態"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "u_birds",
+    "card": {
+      "name": "召喚青鳥",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "kind": "special move",
+      "effect": "青鳥群停留 3 回合，每回合自動拉 3 人"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "u_swap",
+    "card": {
+      "name": "改變人設",
+      "belongs_to": "green（沈伯洋陣營的卡）",
+      "kind": "special move",
+      "effect": "雙方所有狀態互換，並依回合數額外拉人（第 6 回合後）"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "u_reflect",
+    "card": {
+      "name": "問A答B・大反射",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "kind": "special move",
+      "effect": "對方下一張攻擊卡轉向，效果改由對方承受"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.8,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "u_team",
+    "card": {
+      "name": "召喚市政團隊",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "kind": "special move",
+      "effect": "市政團隊停留 3 回合，每回合自動拉 3 人"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  },
+  {
+    "id": "u_report",
+    "card": {
+      "name": "市政成績單",
+      "belongs_to": "blue（蔣萬安陣營的卡）",
+      "kind": "special move",
+      "effect": "清除對方所有增益，並依回合數額外拉人（第 6 回合後）"
+    },
+    "scores": {
+      "quotes_real_person": 0.05,
+      "mocks_looks_family_health": 0.05,
+      "demeans_group": 0.05,
+      "asks_to_vote": 0.05,
+      "states_real_event": 0.05,
+      "pokes_blue": 0.1,
+      "pokes_green": 0.1,
+      "harshness": 1.2
+    }
+  }
+]

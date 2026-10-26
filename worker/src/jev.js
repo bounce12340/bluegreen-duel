@@ -98,11 +98,12 @@ export function parseFacts(body) {
   return f;
 }
 
-// 呼叫 Jev。失敗一律丟出錯誤（不要把失敗當成「不是吹牛」）。
-export async function askJev(apiKey, facts, url = JEV_URL) {
-  const payload = { model: JEV_MODEL, state: buildState(facts), questions: QUESTIONS };
+// ── 通用呼叫 ───────────────────────────────
+// 呼叫 Jev。失敗一律丟出錯誤（不要把失敗當成「否」）。回傳 { answers, model, usage, payload }
+export async function callJev(apiKey, state, questions, { url = JEV_URL, timeoutMs = JEV_TIMEOUT_MS } = {}) {
+  const payload = { model: JEV_MODEL, state, questions };
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), JEV_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(url, {
       method: 'POST',
@@ -112,10 +113,181 @@ export async function askJev(apiKey, facts, url = JEV_URL) {
     });
     if (!r.ok) throw new Error(`jev http ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const d = await r.json();
-    const p = d?.answers?.is_bluff?.noul;
-    if (typeof p !== 'number' || p < 0 || p > 1) throw new Error('jev bad answer');
-    return { bluff: p, model: d.model, usage: d.usage, payload };
+    for (const k of Object.keys(questions)) {
+      if (!d?.answers?.[k]) throw new Error(`jev missing answer ${k}`);
+    }
+    return { answers: d.answers, model: d.model, usage: d.usage, payload };
   } finally {
     clearTimeout(timer);
   }
+}
+const noul = (answers, k) => {
+  const v = answers[k]?.noul;
+  if (typeof v !== 'number' || v < 0 || v > 1) throw new Error(`jev bad noul ${k}`);
+  return v;
+};
+
+// ── 1. 電腦對手：這次像不像吹牛 ───────────────
+export async function askJev(apiKey, facts, url = JEV_URL) {
+  const r = await callJev(apiKey, buildState(facts), QUESTIONS, { url });
+  return { bluff: noul(r.answers, 'is_bluff'), model: r.model, usage: r.usage, payload: r.payload };
+}
+
+// ── 2. 暱稱審核 ───────────────────────────────
+// 關鍵字清單先擋明顯的（免費）；Jev 抓諧音、空格、注音等繞法。
+export const NICKNAME_CONTEXT = 'A player typed this nickname for an online card game that satirizes the 2026 Taipei mayoral race between 蔣萬安 (Kuomintang, KMT, the blue camp) and 沈伯洋 (Democratic Progressive Party, DPP, the green camp). The opponent will see it. People sometimes hide words with spaces, homophones, Zhuyin symbols (ㄅㄆㄇ), or English spellings.';
+export const NICKNAME_QUESTIONS = {
+  claims_politician: {
+    type: 'noul',
+    instructions: 'Does `nickname` claim that the player is a real politician or a member of their campaign team?',
+    criteria: {
+      true: 'The nickname presents the player as 蔣萬安, 沈伯洋, another real politician, or their staff, for example "萬安本人" or "伯洋競選團隊".',
+      false: 'The nickname is an ordinary handle, or only jokes about politics without claiming to be a politician or their staff.',
+    },
+  },
+  claims_official: {
+    type: 'noul',
+    instructions: 'Does `nickname` claim to be a government office, the election commission, a political party, or the game\'s staff?',
+    criteria: {
+      true: 'The nickname presents the player as an official body or as staff, for example "中選會公告", "國民黨黨部", or "遊戲管理員".',
+      false: 'The nickname is a personal handle that does not claim any official role.',
+    },
+  },
+  insults: {
+    type: 'noul',
+    instructions: 'Does `nickname` swear at or insult someone?',
+    criteria: {
+      true: 'The nickname contains swearing, slurs, or name-calling, including disguised spellings or homophones.',
+      false: 'The nickname is friendly, neutral, or gently self-deprecating.',
+    },
+  },
+  demeans_group: {
+    type: 'noul',
+    instructions: 'Does `nickname` put down a group of people, such as supporters of a party, an ethnic group, or people from a place?',
+    criteria: {
+      true: 'The nickname uses a label or joke that belittles a whole group, for example calling one camp\'s supporters animals.',
+      false: 'The nickname does not target any group of people.',
+    },
+  },
+  campaigns: {
+    type: 'noul',
+    instructions: 'Does `nickname` urge people to vote for or against a candidate or party?',
+    criteria: {
+      true: 'The nickname asks people to vote, or not vote, for someone, for example "投給二號" or "罷免某某".',
+      false: 'The nickname does not ask anyone to vote in any way.',
+    },
+  },
+};
+// 判斷規則（程式決定）：冒充、拉票牽涉法律，門檻 0.5；罵人、歧視 0.7
+export const NICKNAME_RULES = [
+  { key: 'claims_politician', threshold: 0.5, msg: '這個暱稱像是在冒充真實政治人物或其團隊，請換一個' },
+  { key: 'claims_official', threshold: 0.5, msg: '這個暱稱像是在冒充官方或遊戲管理員，請換一個' },
+  { key: 'campaigns', threshold: 0.5, msg: '暱稱不能有投票或罷免呼籲，請換一個' },
+  { key: 'insults', threshold: 0.7, msg: '這個暱稱含有罵人的字眼，請換一個' },
+  { key: 'demeans_group', threshold: 0.7, msg: '這個暱稱有歧視或貶低特定族群的意味，請換一個' },
+];
+export async function judgeNickname(apiKey, nickname, url = JEV_URL) {
+  const r = await callJev(apiKey, { nickname, context: NICKNAME_CONTEXT }, NICKNAME_QUESTIONS, { url });
+  const scores = Object.fromEntries(Object.keys(NICKNAME_QUESTIONS).map((k) => [k, noul(r.answers, k)]));
+  const hit = NICKNAME_RULES.find((rule) => scores[rule.key] >= rule.threshold);
+  return { ok: !hit, msg: hit ? hit.msg : null, scores, model: r.model, usage: r.usage };
+}
+
+// ── 3. 聯絡信箱分流 ───────────────────────────
+// 寄件人地址不送給 Jev，只送主旨與內文（截斷）。
+export const MAIL_CONTEXT = 'This email was sent to the public contact address of 藍綠對決, a free online political-satire card game about the 2026 Taipei mayoral race between 蔣萬安 (KMT) and 沈伯洋 (DPP). The game is not made by any candidate, party, or campaign.';
+export const MAIL_QUESTIONS = {
+  asks_removal: { type: 'noul', instructions: 'Does `email` ask for the game, or something in it, to be taken down, removed, or changed?' },
+  speaks_for_official: { type: 'noul', instructions: 'Does the writer of `email` say they represent a candidate, a campaign, a political party, a government agency, or the election commission?' },
+  mentions_legal: { type: 'noul', instructions: 'Does `email` mention legal action, a lawyer, a court, or a specific law?' },
+  reports_bug: { type: 'noul', instructions: 'Does `email` describe the game not working, such as an error, a freeze, or something broken?' },
+  from_press: { type: 'noul', instructions: 'Does the writer of `email` say they are a journalist or work for a media outlet?' },
+  about_money: { type: 'noul', instructions: 'Is `email` about donating, sponsoring, or paying money to the game?' },
+  money_for_content: {
+    type: 'noul',
+    instructions: 'Does `email` offer money in exchange for adding, removing, or changing content in the game?',
+    criteria: {
+      true: 'The writer ties a payment or donation to a content change, for example "I will sponsor you if you add a card attacking one side".',
+      false: 'Any money mentioned comes with no request to change the game\'s content.',
+    },
+  },
+  abusive: { type: 'noul', instructions: 'Does `email` insult or threaten the reader?' },
+};
+// 判斷規則：任一緊急條件 ≥ 0.5 → 標「urgent」並轉寄作者；媒體來信也轉寄
+export function mailDecision(scores) {
+  const urgentKeys = ['asks_removal', 'speaks_for_official', 'mentions_legal', 'money_for_content'];
+  const labels = [];
+  const urgent = urgentKeys.some((k) => scores[k] >= 0.5);
+  if (urgent) labels.push('urgent');
+  if (scores.asks_removal >= 0.5) labels.push('takedown');
+  if (scores.speaks_for_official >= 0.5) labels.push('official');
+  if (scores.mentions_legal >= 0.5) labels.push('legal');
+  if (scores.money_for_content >= 0.5) labels.push('conditional-sponsor');
+  else if (scores.about_money >= 0.7) labels.push('sponsor');
+  if (scores.reports_bug >= 0.7) labels.push('bug');
+  if (scores.from_press >= 0.7) labels.push('press');
+  if (scores.abusive >= 0.7) labels.push('abusive');
+  if (!labels.length) labels.push('other');
+  return { labels, forward: urgent || labels.includes('press'), urgent };
+}
+export async function judgeMail(apiKey, subject, body, url = JEV_URL) {
+  const email = { subject: String(subject || '').slice(0, 300), body: String(body || '').slice(0, 6000) };
+  const r = await callJev(apiKey, { email, context: MAIL_CONTEXT }, MAIL_QUESTIONS, { url, timeoutMs: 8000 });
+  const scores = Object.fromEntries(Object.keys(MAIL_QUESTIONS).map((k) => [k, noul(r.answers, k)]));
+  return { scores, ...mailDecision(scores), model: r.model, usage: r.usage };
+}
+
+// ── 4. 卡牌合規＋嘲諷對稱（部署前檢查用）─────────
+export const CONTENT_CONTEXT = 'This is one card from 藍綠對決, a political-satire card game about the 2026 Taipei mayoral race. 萬安號 is a cartoon mascot for 蔣萬安 (KMT, blue camp); 伯洋號 is a cartoon mascot for 沈伯洋 (DPP, green camp). "Blue" cards are played by the 蔣萬安 side and "green" cards by the 沈伯洋 side; "shared" cards can be played by either. The game\'s rules forbid putting invented quotes in a real person\'s mouth, attacking looks, family, or groups of people, and asking people to vote.';
+export const CONTENT_QUESTIONS = {
+  quotes_real_person: {
+    type: 'noul',
+    instructions: 'Does `card` present words as something a real person said?',
+    criteria: {
+      true: 'The card text reads as a line spoken by a real politician, for example a quotation attributed to 蔣萬安 or 沈伯洋 or written in their voice.',
+      false: 'The text is narration, a description, or a line from an anonymous or fictional speaker.',
+    },
+  },
+  mocks_looks_family_health: { type: 'noul', instructions: 'Does `card` mock someone\'s looks, body, family, or health?' },
+  demeans_group: { type: 'noul', instructions: 'Does `card` put down supporters of a party, an ethnic group, or people from a place?' },
+  asks_to_vote: { type: 'noul', instructions: 'Does `card` tell the reader to vote, or not to vote, for someone?' },
+  states_real_event: {
+    type: 'noul',
+    instructions: 'Does `card` state a specific real-world event or action by a real person as fact?',
+    criteria: {
+      true: 'The card asserts that a named real person did a specific thing, for example "沈伯洋 was fined" or "蔣萬安 cancelled a project".',
+      false: 'The card describes generic campaign activity or a fictional game effect.',
+    },
+  },
+  pokes_blue: { type: 'noul', instructions: 'Does `card` poke fun at 蔣萬安, the KMT, or blue-camp supporters?' },
+  pokes_green: { type: 'noul', instructions: 'Does `card` poke fun at 沈伯洋, the DPP, or green-camp supporters?' },
+  harshness: {
+    type: 'score',
+    instructions: 'How harsh is any joke in `card`?',
+    criteria: [
+      'The card has no joke or teasing at all.',
+      'Gentle, friendly teasing that the target could laugh along with.',
+      'Pointed teasing about a well-known habit or speaking style.',
+      'Harsh mockery that could embarrass or hurt the target.',
+    ],
+  },
+};
+export const CONTENT_RULES = [
+  { key: 'quotes_real_person', label: '把話安在真實人物嘴上' },
+  { key: 'mocks_looks_family_health', label: '嘲笑外貌、家人或健康' },
+  { key: 'demeans_group', label: '貶低族群或支持者' },
+  { key: 'asks_to_vote', label: '投票呼籲' },
+  { key: 'states_real_event', label: '把真實事件當事實陳述' },
+];
+export async function judgeCard(apiKey, card, url = JEV_URL) {
+  const r = await callJev(apiKey, { card, context: CONTENT_CONTEXT }, CONTENT_QUESTIONS, { url, timeoutMs: 10000 });
+  const scores = {};
+  for (const k of Object.keys(CONTENT_QUESTIONS)) {
+    if (CONTENT_QUESTIONS[k].type === 'noul') scores[k] = noul(r.answers, k);
+  }
+  // 嘲諷強度：Score 的 score 是各級機率的加權平均（0＝沒有玩笑 … 3＝尖酸），保留分布方便檢查
+  const h = r.answers.harshness;
+  if (typeof h?.score !== 'number') throw new Error('jev bad score harshness');
+  scores.harshness = h.score;
+  return { scores, harshnessProbs: h.probabilities || {}, model: r.model, usage: r.usage, payload: r.payload };
 }

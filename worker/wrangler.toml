@@ -12,6 +12,7 @@ ALLOWED_HOSTS = "bluegreen-duel.pages.dev"
 # 緊急關閉：Cloudflare 後台 → bluegreen-duel-server → Settings → Variables 加 JEV_DISABLED = 1（部署不會蓋掉）
 # 每日上限 JEV_DAILY_CAP、每 IP 每分鐘上限 JEV_PER_IP_PER_MIN 也可在後台設定（預設 50000、20）
 JEV_ENABLED = "1"
+MAIL_INBOX = "bluegreen-duel@agentmail.to"
 
 [[durable_objects.bindings]]
 name = "LOBBY"
@@ -32,6 +33,10 @@ new_sqlite_classes = ["Lobby", "Room"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["JevGate"]
+
+# 每 5 分鐘檢查一次聯絡信箱（需 AGENTMAIL_API_KEY、NOTIFY_EMAIL）
+[triggers]
+crons = ["*/5 * * * *"]
 
 [observability]
 enabled = true

@@ -8,7 +8,8 @@ import {
   declareCard, respond, hasStatus, RULES,
 } from '../../site/js/engine.js';
 import { checkName, cleanName } from '../../site/js/names.js';
-import { parseFacts, askJev, JEV_MODEL } from './jev.js';
+import { parseFacts, askJev, judgeNickname } from './jev.js';
+import { triageInbox } from './mail.js';
 
 const MAX_ROOMS = 200;
 const TURN_MS = 30_000;           // 一回合只出一張牌，30 秒
@@ -98,6 +99,14 @@ export default {
     if (m) return env.ROOM.get(env.ROOM.idFromName(m[1])).fetch(req);
     return json({ error: 'not found' }, 404);
   },
+
+  // 每 5 分鐘：聯絡信箱分流（沒設定 AgentMail 金鑰或轉寄地址就不動作）
+  async scheduled(event, env, ctx) {
+    if (!jevEnabled(env)) return;
+    ctx.waitUntil(triageInbox(env, { jevUrl: env.JEV_URL_OVERRIDE || undefined }).then((r) => {
+      if (r.checked) console.log(JSON.stringify({ mail: 'run', ...r }));
+    }).catch((e) => console.log(JSON.stringify({ mail: 'run-error', error: String(e).slice(0, 300) }))));
+  },
 };
 
 // ── Jev 判斷閘門：頻率限制、每日上限、呼叫 API ─────────
@@ -110,29 +119,57 @@ export class JevGate extends DurableObject {
     this.perIp = new Map(); // ip → { minute, n }（休眠後重置，無妨）
   }
 
-  async fetch(req) {
+  // 頻率限制＋每日上限；通過回傳 null，否則回傳 429
+  async admit(ip) {
     const env = this.env;
-    const ip = req.headers.get('cf-connecting-ip') || 'unknown';
     const minute = Math.floor(Date.now() / 60_000);
     const rec = this.perIp.get(ip);
     const perMin = Number(env.JEV_PER_IP_PER_MIN || 20);
     if (rec && rec.minute === minute && rec.n >= perMin) return json({ error: 'rate limited' }, 429);
     this.perIp.set(ip, rec && rec.minute === minute ? { minute, n: rec.n + 1 } : { minute, n: 1 });
     if (this.perIp.size > 5000) this.perIp.clear();
-
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date());
     const key = `count:${day}`;
     const used = (await this.ctx.storage.get(key)) || 0;
     if (used >= Number(env.JEV_DAILY_CAP || 50000)) return json({ error: 'daily cap reached' }, 429);
+    await this.ctx.storage.put(key, used + 1);
+    return null;
+  }
 
+  async fetch(req) {
+    const env = this.env;
+    const url = new URL(req.url);
+    // JEV_URL_OVERRIDE 只給本機測試用（假的 Jev 伺服器）；正式環境不設
+    const jevUrl = env.JEV_URL_OVERRIDE || undefined;
+
+    // 暱稱審核（大廳與房間內部呼叫）：先查快取，同一個暱稱 7 天內不重問
+    if (url.pathname === '/nickname') {
+      const { name, ip } = await req.json();
+      const ck = `nick:${name}`;
+      const cached = await this.ctx.storage.get(ck);
+      if (cached && Date.now() - cached.at < 7 * 86400_000) return json({ ok: cached.ok, msg: cached.msg, cached: true });
+      const blocked = await this.admit(ip || 'unknown');
+      if (blocked) return json({ ok: true, unchecked: true, reason: 'rate' }); // 超過頻率就只靠關鍵字
+      try {
+        const r = await judgeNickname(env.TYPESAFE_API_KEY, name, jevUrl);
+        await this.ctx.storage.put(ck, { ok: r.ok, msg: r.msg, at: Date.now() });
+        console.log(JSON.stringify({ jev: 'nickname', ok: r.ok, scores: r.scores, usage: r.usage }));
+        return json({ ok: r.ok, msg: r.msg });
+      } catch (e) {
+        // 失敗不是「通過」也不是「擋下」：記錄錯誤，這次只靠關鍵字過濾，讓玩家能繼續玩
+        console.log(JSON.stringify({ jev: 'nickname-error', error: String(e).slice(0, 300) }));
+        return json({ ok: true, unchecked: true, reason: 'error' });
+      }
+    }
+
+    // 電腦對手的吹牛判斷（玩家瀏覽器呼叫）
+    const blocked = await this.admit(req.headers.get('cf-connecting-ip') || 'unknown');
+    if (blocked) return blocked;
     let facts;
     try { facts = parseFacts(await req.json()); } catch { facts = null; }
     if (!facts) return json({ error: 'bad request' }, 400);
-
-    await this.ctx.storage.put(key, used + 1);
     try {
-      // JEV_URL_OVERRIDE 只給本機測試用（假的 Jev 伺服器）；正式環境不設
-      const r = await askJev(env.TYPESAFE_API_KEY, facts, env.JEV_URL_OVERRIDE || undefined);
+      const r = await askJev(env.TYPESAFE_API_KEY, facts, jevUrl);
       // 記錄完整請求內容（不含個資），方便日後重跑與除錯
       console.log(JSON.stringify({ jev: 'ok', model: r.model, bluff: r.bluff, usage: r.usage, payload: r.payload }));
       return json({ bluff: r.bluff, model: r.model });
@@ -140,6 +177,22 @@ export class JevGate extends DurableObject {
       console.log(JSON.stringify({ jev: 'error', error: String(e).slice(0, 300), facts }));
       return json({ error: 'jev unavailable' }, 502);
     }
+  }
+}
+
+// 暱稱審核：關鍵字（免費、即時）→ Jev（有開才問）。回傳錯誤訊息，合格回傳 null
+async function moderateName(env, name, ip) {
+  const err = checkName(name);
+  if (err) return err;
+  if (!jevEnabled(env)) return null;
+  try {
+    const r = await env.JEV_GATE.get(env.JEV_GATE.idFromName('global')).fetch('https://gate/nickname', {
+      method: 'POST', body: JSON.stringify({ name: cleanName(name), ip }),
+    });
+    const d = await r.json();
+    return d.ok ? null : d.msg;
+  } catch {
+    return null;
   }
 }
 
@@ -180,9 +233,9 @@ export class Lobby extends DurableObject {
   async createPrivate(req) {
     let b;
     try { b = await req.json(); } catch { return json({ error: '資料格式錯誤' }, 400); }
-    const nameErr = checkName(b.name);
-    if (nameErr) return json({ error: nameErr }, 400);
     if (!validPid(b.pid) || !validSide(b.side)) return json({ error: '資料格式錯誤' }, 400);
+    const nameErr = await moderateName(this.env, b.name, req.headers.get('cf-connecting-ip'));
+    if (nameErr) return json({ error: nameErr }, 400);
     if (!(await verifyTurnstile(this.env, b.turnstile, req.headers.get('cf-connecting-ip')))) return json({ error: '真人驗證失敗，請重試' }, 403);
     const rooms = await this.rooms();
     if (Object.keys(rooms).length >= MAX_ROOMS) return json({ error: '目前房間已滿，請稍後再試' }, 503);
@@ -204,9 +257,9 @@ export class Lobby extends DurableObject {
     if (m.t !== 'join') return;
     const att = ws.deserializeAttachment() || {};
     if (att.waiting) return;
-    const err = checkName(m.name);
-    if (err) { ws.send(JSON.stringify({ t: 'error', msg: err })); return; }
     if (!validPid(m.pid) || !validSide(m.side)) { ws.send(JSON.stringify({ t: 'error', msg: '資料格式錯誤' })); return; }
+    const err = await moderateName(this.env, m.name, att.ip);
+    if (err) { ws.send(JSON.stringify({ t: 'error', msg: err })); return; }
     if (!(await verifyTurnstile(this.env, m.turnstile, att.ip))) { ws.send(JSON.stringify({ t: 'error', msg: '真人驗證失敗，請重試' })); return; }
     ws.serializeAttachment({ waiting: true, pid: m.pid, name: cleanName(m.name), pref: m.side, joinedAt: Date.now() });
     ws.send(JSON.stringify({ t: 'waiting' }));
@@ -332,8 +385,9 @@ export class Room extends DurableObject {
       // 新玩家加入朋友房
       if (r.status !== 'waiting') return reject('這個房間已經開始或結束了');
       const name = url.searchParams.get('name');
-      const err = checkName(name);
+      const err = await moderateName(this.env, name, req.headers.get('cf-connecting-ip'));
       if (err) return reject(err);
+      if (this.r.status !== 'waiting') return reject('這個房間已經開始或結束了'); // 審核期間被別人搶先
       side = ['blue', 'green'].find((s) => !r.players[s]);
       r.players[side] = { pid, name: cleanName(name) };
       this.startGame();
