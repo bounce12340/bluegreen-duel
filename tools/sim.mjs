@@ -23,3 +23,6 @@ console.log('先手勝率', (100 * firstWin.yes / (firstWin.yes + firstWin.no)).
 console.log('平均結束回合', (rounds / N).toFixed(1), '過半提前結束', pct(byMajority), '平均差距', (margins / N).toFixed(1));
 console.log('絕招/爆表', ultUse);
 console.log('出牌次數', Object.entries(cardPlays).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ':' + v).join(' '));
+// 部署前檢查：任一方勝率超出 40–60% 就視為失衡，讓 CI 失敗
+const blueRate = res.blue / N;
+if (blueRate < 0.4 || blueRate > 0.6) { console.error('平衡檢查失敗：藍方勝率', blueRate); process.exit(1); }
