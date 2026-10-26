@@ -290,7 +290,9 @@ export class Room extends DurableObject {
     for (const old of this.ctx.getWebSockets(side)) { try { old.close(4001, 'replaced'); } catch { /* 忽略 */ } }
     this.ctx.acceptWebSocket(pair[1], [side]);
     pair[1].serializeAttachment({ side });
-    const wasAway = !!r.disconnects[side];
+    r.joined = r.joined || { blue: false, green: false };
+    const wasAway = r.joined[side] && !!r.disconnects[side]; // 第一次連進來不算「回來」
+    r.joined[side] = true;
     r.disconnects[side] = null;
     await this.save();
     // 101 回應送出後再推畫面
@@ -304,6 +306,11 @@ export class Room extends DurableObject {
 
   startGame() {
     const now = Date.now();
+    // 還沒連進來的玩家先當作斷線：30 秒內沒出現就判負，避免對手對著空位玩 20 分鐘
+    this.r.joined = this.r.joined || { blue: false, green: false };
+    for (const side of ['blue', 'green']) {
+      if (!this.ctx.getWebSockets(side).length) this.r.disconnects[side] = now;
+    }
     this.r.state = createGame({ seed: randInt(), disabledCards: disabledCards(this.env) });
     takeEvents(this.r.state);
     this.r.status = 'playing';
@@ -412,7 +419,7 @@ export class Room extends DurableObject {
       const turnBefore = s.turnIndex;
       const gone = ['blue', 'green'].find((x) => r.disconnects[x] && now >= r.disconnects[x] + DISCONNECT_MS);
       if (gone) {
-        s.over = true; s.winner = other(gone); s.reason = '對手斷線超過 30 秒';
+        s.over = true; s.winner = other(gone); s.reason = '對手未連線或斷線超過 30 秒';
         s.events.push({ type: 'gameOver', winner: s.winner });
       } else if (now >= r.endAt) {
         finishByCount(s);

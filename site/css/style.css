@@ -168,3 +168,7 @@ body.in-battle #footer { display: none; }
 .code { font-size: 40px; font-weight: 900; letter-spacing: 8px; text-align: center; padding: 10px; background: #fff; border: 3px dashed var(--ink); border-radius: 16px; margin: 6px 0 10px; }
 .nick { font-weight: 700; opacity: .9; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #ts-box { display: flex; justify-content: center; min-height: 70px; margin: 10px 0; }
+
+/* 配對倒數圈 */
+.count-ring { --p: 100%; width: 96px; height: 96px; margin: 6px auto 4px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 34px; font-weight: 900; background: radial-gradient(closest-side, var(--paper) 78%, transparent 80% 100%), conic-gradient(var(--ink) var(--p), #e3e7ee 0); }

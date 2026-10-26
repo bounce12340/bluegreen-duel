@@ -569,20 +569,48 @@ async function randomMatch(side, name = savedName()) {
   unlock();
   let token = null;
   try { token = await verifyHuman(); } catch { notice('真人驗證沒有完成，請再試一次'); return; }
-  openModal(`<h2>配對中…</h2><p id="m-wait" class="center">正在找對手，通常幾秒鐘</p>
-    <p class="small center">會優先配到另一個陣營的玩家；等太久會改成不分陣營配對。</p>
-    <div class="btns"><button class="btn" id="m-cancel">取消</button></div>`, { locked: true });
+  const total = CONFIG.MATCH_SECONDS;
+  openModal(`<h2>配對中…</h2>
+    <div class="count-ring" id="m-count">${total}</div>
+    <p id="m-wait" class="center">正在找另一個陣營的對手…</p>
+    <p class="small center">${total} 秒內沒配到，會自動改成跟電腦對戰。</p>
+    <div class="btns"><button class="btn ${side}" id="m-ai">直接跟電腦玩</button><button class="btn" id="m-cancel">取消</button></div>`, { locked: true });
   const ws = new WebSocket(wsUrl('/lobby'));
   lobbySock = ws;
-  $('#m-cancel').onclick = () => { lobbySock = null; ws.close(); closeModal(); };
+  const started = Date.now();
+  let full = false;
+  const stop = () => {
+    clearInterval(countTimer);
+    if (lobbySock === ws) lobbySock = null;
+    try { ws.close(); } catch { /* 忽略 */ }
+  };
+  const toAI = (auto) => {
+    stop();
+    startGame(side);
+    if (auto) toast('沒有配到對手，改跟電腦對戰', side, true);
+  };
+  const countTimer = setInterval(() => {
+    if (lobbySock !== ws) { clearInterval(countTimer); return; }
+    const left = Math.max(0, total - Math.floor((Date.now() - started) / 1000));
+    const el = $('#m-count');
+    if (el) {
+      el.textContent = left;
+      el.style.setProperty('--p', `${(left / total) * 100}%`);
+    }
+    if (!full && $('#m-wait') && Date.now() - started > 12_000) $('#m-wait').textContent = '改找任何陣營的對手…';
+    if (left <= 0) toAI(true);
+  }, 250);
+  $('#m-ai').onclick = () => toAI(false);
+  $('#m-cancel').onclick = () => { stop(); closeModal(); };
   ws.onopen = () => ws.send(JSON.stringify({ t: 'join', pid: getPid(), name, side, turnstile: token }));
   ws.onmessage = (e) => {
+    if (lobbySock !== ws) return; // 已改跟電腦玩或已取消，忽略晚到的配對結果
     let m; try { m = JSON.parse(e.data); } catch { return; }
-    if (m.t === 'queue' && $('#m-wait')) $('#m-wait').textContent = m.msg;
-    else if (m.t === 'error') { lobbySock = null; ws.close(); notice(m.msg); }
-    else if (m.t === 'matched') { lobbySock = null; connectRoom(m.code, name); }
+    if (m.t === 'queue' && $('#m-wait')) { full = true; $('#m-wait').textContent = m.msg; }
+    else if (m.t === 'error') { stop(); notice(m.msg); }
+    else if (m.t === 'matched') { stop(); connectRoom(m.code, name); }
   };
-  ws.onclose = () => { if (lobbySock === ws) { lobbySock = null; notice('配對連線中斷，請再試一次'); } };
+  ws.onclose = () => { if (lobbySock === ws) { stop(); notice('配對連線中斷，請再試一次'); } };
 }
 
 async function hostRoom(side, name) {

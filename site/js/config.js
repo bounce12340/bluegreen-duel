@@ -17,4 +17,7 @@ export const CONFIG = {
   SPONSOR_URL: '',
 
   TURN_SECONDS: 60,
+
+  // 隨機配對最多等幾秒，時間到自動改跟電腦對戰
+  MATCH_SECONDS: 30,
 };

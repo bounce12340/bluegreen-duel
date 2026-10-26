@@ -24,7 +24,8 @@ repo secrets：`CLOUDFLARE_API_TOKEN`（Pages Edit、Workers Scripts Edit）、`
 - `TURNSTILE_SITE_KEY`＋祕密 `TURNSTILE_SECRET`：設了才啟用真人驗證
 
 ## 連線規則
-- 隨機配對優先配不同陣營，等 12 秒以上改為不分陣營
+- 隨機配對優先配不同陣營，等 12 秒以上改為不分陣營；畫面倒數 30 秒，沒配到自動改跟電腦對戰（`site/js/config.js` 的 `MATCH_SECONDS`）
+- 被配對但 30 秒內沒連進房間的玩家判負，避免對手對著空位玩
 - 朋友房 5 碼房號，10 分鐘沒人加入自動關閉
 - 每回合 60 秒（伺服器計時，截止後 1 秒寬限）；斷線 30 秒判負；單局最長 20 分鐘
 - 同時房間上限 200，額滿排隊；每個連線每秒最多 8 則訊息
@@ -36,6 +37,7 @@ cd worker && npx wrangler dev --port 8787
 npx wrangler pages dev site --port 8788
 python3 tools/pvp_test.py           # 雙人配對、重連、朋友房
 python3 tools/pvp_timeout_test.py   # 逾時與斷線判負（約 100 秒）
+python3 tools/match_timeout_test.py # 配對倒數改電腦、幽靈對手判負（約 80 秒）
 ```
 
 ## 單機版備用設定（site/js/config.js，需重新部署）
