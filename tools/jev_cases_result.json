@@ -1,0 +1,223 @@
+{
+  "at": "2026-10-26T23:45:59.612Z",
+  "base": "https://bluegreen-duel.pages.dev",
+  "results": [
+    {
+      "name": "一般：中期宣告 2 費普通卡，沒有紀錄",
+      "expect": "中",
+      "f": {
+        "asId": "s_market"
+      },
+      "facts": {
+        "round": 5,
+        "apBefore": 5,
+        "skippedLastTurn": false,
+        "handSize": 3,
+        "declarerSupporters": 20,
+        "otherSupporters": 20,
+        "history": {
+          "bluffs": 0,
+          "honest": 0
+        },
+        "asId": "s_market"
+      },
+      "status": 200,
+      "bluff": 0.45,
+      "model": "jev-1.14.0",
+      "ms": 799
+    },
+    {
+      "name": "弱卡：宣告 1 費「掃街拜票」，沒有紀錄",
+      "expect": "偏低",
+      "f": {
+        "asId": "s_street",
+        "apBefore": 4
+      },
+      "facts": {
+        "round": 5,
+        "apBefore": 4,
+        "skippedLastTurn": false,
+        "handSize": 3,
+        "declarerSupporters": 20,
+        "otherSupporters": 20,
+        "history": {
+          "bluffs": 0,
+          "honest": 0
+        },
+        "asId": "s_street"
+      },
+      "status": 200,
+      "bluff": 0.41,
+      "model": "jev-1.14.0",
+      "ms": 289
+    },
+    {
+      "name": "存錢後出大牌：上回合跳過、宣告 5 費史詩，過去 5 次都老實",
+      "expect": "低",
+      "f": {
+        "asId": "g_speech",
+        "apBefore": 7,
+        "skippedLastTurn": true,
+        "history": {
+          "bluffs": 0,
+          "honest": 5
+        }
+      },
+      "facts": {
+        "round": 5,
+        "apBefore": 7,
+        "skippedLastTurn": true,
+        "handSize": 3,
+        "declarerSupporters": 20,
+        "otherSupporters": 20,
+        "history": {
+          "bluffs": 0,
+          "honest": 5
+        },
+        "asId": "g_speech"
+      },
+      "status": 200,
+      "bluff": 0.31,
+      "model": "jev-1.14.0",
+      "ms": 162
+    },
+    {
+      "name": "慣犯：宣告 5 費史詩，過去 6 次都是吹牛",
+      "expect": "高",
+      "f": {
+        "asId": "g_speech",
+        "history": {
+          "bluffs": 6,
+          "honest": 0
+        }
+      },
+      "facts": {
+        "round": 5,
+        "apBefore": 5,
+        "skippedLastTurn": false,
+        "handSize": 3,
+        "declarerSupporters": 20,
+        "otherSupporters": 20,
+        "history": {
+          "bluffs": 6,
+          "honest": 0
+        },
+        "asId": "g_speech"
+      },
+      "status": 200,
+      "bluff": 0.6,
+      "model": "jev-1.14.0",
+      "ms": 238
+    },
+    {
+      "name": "一半一半：宣告 5 費史詩，過去 3 吹 3 實",
+      "expect": "中",
+      "f": {
+        "asId": "g_speech",
+        "history": {
+          "bluffs": 3,
+          "honest": 3
+        }
+      },
+      "facts": {
+        "round": 5,
+        "apBefore": 5,
+        "skippedLastTurn": false,
+        "handSize": 3,
+        "declarerSupporters": 20,
+        "otherSupporters": 20,
+        "history": {
+          "bluffs": 3,
+          "honest": 3
+        },
+        "asId": "g_speech"
+      },
+      "status": 200,
+      "bluff": 0.45,
+      "model": "jev-1.14.0",
+      "ms": 191
+    },
+    {
+      "name": "絕望一搏：第 11 回合落後 5 比 45，宣告史詩",
+      "expect": "偏高",
+      "f": {
+        "asId": "b_vision",
+        "round": 11,
+        "declarerSupporters": 5,
+        "otherSupporters": 45
+      },
+      "facts": {
+        "round": 11,
+        "apBefore": 5,
+        "skippedLastTurn": false,
+        "handSize": 3,
+        "declarerSupporters": 5,
+        "otherSupporters": 45,
+        "history": {
+          "bluffs": 0,
+          "honest": 0
+        },
+        "asId": "b_vision"
+      },
+      "status": 200,
+      "bluff": 0.51,
+      "model": "jev-1.14.0",
+      "ms": 174
+    },
+    {
+      "name": "剛好能贏：40 人宣告拉 14 人的卡",
+      "expect": "中",
+      "f": {
+        "asId": "b_vision",
+        "round": 9,
+        "declarerSupporters": 40,
+        "otherSupporters": 30
+      },
+      "facts": {
+        "round": 9,
+        "apBefore": 5,
+        "skippedLastTurn": false,
+        "handSize": 3,
+        "declarerSupporters": 40,
+        "otherSupporters": 30,
+        "history": {
+          "bluffs": 0,
+          "honest": 0
+        },
+        "asId": "b_vision"
+      },
+      "status": 200,
+      "bluff": 0.43,
+      "model": "jev-1.14.0",
+      "ms": 254
+    },
+    {
+      "name": "開局：第 1 回合宣告 3 費稀有卡",
+      "expect": "中",
+      "f": {
+        "asId": "s_forum",
+        "round": 1,
+        "apBefore": 3,
+        "declarerSupporters": 0,
+        "otherSupporters": 0
+      },
+      "facts": {
+        "round": 1,
+        "apBefore": 3,
+        "skippedLastTurn": false,
+        "handSize": 3,
+        "declarerSupporters": 0,
+        "otherSupporters": 0,
+        "history": {
+          "bluffs": 0,
+          "honest": 0
+        },
+        "asId": "s_forum"
+      },
+      "status": 200,
+      "bluff": 0.44,
+      "model": "jev-1.14.0",
+      "ms": 153
+    }
+  ]
+}
