@@ -1,0 +1,1 @@
+{"type":"module","private":true,"name":"bluegreen-duel","scripts":{"sim":"node tools/sim.mjs 3000"}}

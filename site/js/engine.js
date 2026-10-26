@@ -1,0 +1,383 @@
+// 規則引擎：純邏輯，不碰畫面。瀏覽器與 Node 模擬共用同一份。
+// 所有亂數都從 state.rngState 來，同一個種子可重現整局，方便除錯與平衡模擬。
+// 整局狀態都是純資料（可 JSON 化），伺服器休眠後可以從儲存空間原樣還原。
+import { CARDS, RARITY_WEIGHT, ULTS } from './cards.js';
+
+export const RULES = {
+  totalVoters: 100,
+  winAt: 51,          // 過半即勝：中間選民只有 100 人，達 100 人實務上不會發生
+  maxRounds: 12,
+  handMax: 5,
+  openingHand: 4,
+  drawPerTurn: 2,
+  apCap: 10,
+  pityTurns: 3,       // 連續幾回合沒抽到攻擊卡就保底
+  hitsForSympathy: 2,
+};
+
+// mulberry32：狀態只有一個整數，存在 s.rngState
+export function rand(s) {
+  s.rngState = (s.rngState + 0x6d2b79f5) >>> 0;
+  let t = s.rngState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+const CARD_BY_ID = Object.fromEntries(CARDS.map((c) => [c.id, c]));
+const poolOf = (s) => s.poolIds.map((id) => CARD_BY_ID[id]).filter(Boolean);
+
+const other = (side) => (side === 'blue' ? 'green' : 'blue');
+
+function newPlayer(side) {
+  return {
+    side, supporters: 0, ap: 0, apBonus: 0, hand: [], voice: 0,
+    statuses: [], summons: [], traps: [], usedUlts: [],
+    noAttackStreak: 0, hits: 0, emptyHandBonus: 0, uid: 0,
+  };
+}
+
+export function createGame({ seed = Date.now(), firstSide, disabledCards = [] } = {}) {
+  const s = {
+    seed, rngState: seed >>> 0, round: 1, turnIndex: 0, over: false, winner: null, reason: '',
+    players: { blue: newPlayer('blue'), green: newPlayer('green') },
+    first: null, current: null, field: null, events: [], log: [],
+    poolIds: CARDS.filter((c) => !disabledCards.includes(c.id)).map((c) => c.id),
+    nextUid: 1,
+  };
+  s.first = firstSide || (rand(s) < 0.5 ? 'blue' : 'green');
+  s.current = s.first;
+  const second = other(s.first);
+  for (let i = 0; i < RULES.openingHand; i++) { drawCard(s, s.first); drawCard(s, second); }
+  drawCard(s, second); // 後手補償：多 1 張牌、聲量 30
+  s.players[second].voice = 30;
+  startTurn(s);
+  return s;
+}
+
+export const neutral = (s) => RULES.totalVoters - s.players.blue.supporters - s.players.green.supporters;
+
+function emit(s, ev) {
+  s.events.push(ev);
+  if (ev.msg) { s.log.push(ev.msg); if (s.log.length > 30) s.log.shift(); }
+}
+
+// ── 抽牌 ───────────────────────────────
+function pickCard(s, side, forceAttack) {
+  let pool = poolOf(s).filter((c) => c.side === side || c.side === 'shared');
+  if (forceAttack) pool = pool.filter((c) => c.type === 'attack');
+  const total = Object.values(RARITY_WEIGHT).reduce((a, b) => a + b, 0);
+  let r = rand(s) * total;
+  let rarity = 'common';
+  for (const [k, w] of Object.entries(RARITY_WEIGHT)) { if ((r -= w) < 0) { rarity = k; break; } }
+  let bucket = pool.filter((c) => c.rarity === rarity);
+  if (!bucket.length) bucket = pool;
+  return bucket[Math.floor(rand(s) * bucket.length)];
+}
+
+function drawCard(s, side, forceAttack = false) {
+  const p = s.players[side];
+  const c = pickCard(s, side, forceAttack);
+  if (!c) return null;
+  if (p.hand.length >= RULES.handMax) {
+    emit(s, { type: 'discard', side, card: c.id, msg: `${c.name} 因手牌已滿被棄掉` });
+    return null;
+  }
+  const inst = { ...c, uid: s.nextUid++ };
+  p.hand.push(inst);
+  emit(s, { type: 'draw', side, card: c.id });
+  return inst;
+}
+
+// ── 狀態 ───────────────────────────────
+export const hasStatus = (p, id) => p.statuses.some((x) => x.id === id);
+const removeStatus = (p, id) => { p.statuses = p.statuses.filter((x) => x.id !== id); };
+function addStatus(s, side, id, turns, from) {
+  const p = s.players[side];
+  removeStatus(p, id);
+  p.statuses.push({ id, turns, from, charges: id === 'question' ? 2 : 1 });
+  emit(s, { type: 'status', side, status: id });
+}
+
+function registerHit(s, side) {
+  const p = s.players[side];
+  p.voice = Math.min(100, p.voice + 8);
+  p.hits += 1;
+  if (p.hits >= RULES.hitsForSympathy && !hasStatus(p, 'sympathy')) {
+    p.hits = 0;
+    addStatus(s, side, 'sympathy', 99, side);
+    emit(s, { type: 'sympathy', side, msg: '同情票觸發：下次拉票加倍' });
+  }
+}
+
+// ── 拉票與挖角 ─────────────────────────
+export function decay(round) { return Math.max(0.67, 1 - 0.03 * (round - 1)); } // 後期中間選民較難動搖
+
+function movePull(s, side, n) {
+  const got = Math.max(0, Math.min(n, neutral(s)));
+  s.players[side].supporters += got;
+  return got;
+}
+
+function pull(s, side, base, { fromCard = false, raw = false } = {}) {
+  const p = s.players[side];
+  let mult = 1;
+  if (!raw) {
+    if (hasStatus(p, 'burst')) mult *= 1.5;
+    if (hasStatus(p, 'ultBoost')) mult *= 2;
+    if (fromCard && hasStatus(p, 'sympathy')) { mult *= 2; removeStatus(p, 'sympathy'); }
+  }
+  let amount = Math.max(1, Math.round(base * decay(s.round) * mult));
+  let got = movePull(s, side, amount);
+  if (fromCard && got > 0) {
+    const opp = s.players[other(side)];
+    const trapIdx = opp.traps.findIndex((t) => t.fx.trap === 'flip');
+    if (trapIdx >= 0) {
+      const back = Math.floor(got / 2);
+      opp.traps.splice(trapIdx, 1);
+      p.supporters -= back;
+      got -= back;
+      emit(s, { type: 'trap', side: other(side), trap: 'flip', msg: `陷阱「跑票」：${back} 人走回中間` });
+    }
+    p.voice = Math.min(100, p.voice + 5);
+  }
+  emit(s, { type: 'pull', side, n: got });
+  return got;
+}
+
+function poach(s, side, base) {
+  const victim = s.players[other(side)];
+  const n = Math.min(victim.supporters, base);
+  victim.supporters -= n;
+  s.players[side].supporters += n;
+  emit(s, { type: 'poach', side, n });
+  if (n > 0) registerHit(s, other(side));
+  return n;
+}
+
+// ── 回合流程 ───────────────────────────
+function startTurn(s) {
+  const side = s.current;
+  const p = s.players[side];
+  const opp = s.players[other(side)];
+  p.ap = Math.min(RULES.apCap, s.round + 1) + p.apBonus;
+  p.apBonus = 0;
+
+  // 對方的「下雨了」在這回合開始時觸發
+  const rainIdx = opp.traps.findIndex((t) => t.fx.trap === 'rain');
+  if (rainIdx >= 0) {
+    opp.traps.splice(rainIdx, 1);
+    if (s.field && s.field.owner === side) {
+      s.field = null;
+      emit(s, { type: 'trap', side: other(side), trap: 'rain', msg: '陷阱「下雨了」：造勢晚會提前結束' });
+    } else {
+      p.ap = Math.max(0, p.ap - 1);
+      emit(s, { type: 'trap', side: other(side), trap: 'rain', msg: '陷阱「下雨了」：行程點 -1' });
+    }
+  }
+
+  // 抽牌與保底
+  const draws = RULES.drawPerTurn + p.emptyHandBonus - (s.turnIndex === 0 ? 1 : 0); // 先手首回合少抽 1 張
+  p.emptyHandBonus = 0;
+  let gotAttack = false;
+  for (let i = 0; i < draws; i++) {
+    const force = i === draws - 1 && !gotAttack && p.noAttackStreak >= RULES.pityTurns;
+    const c = drawCard(s, side, force);
+    if (c && c.type === 'attack') gotAttack = true;
+  }
+  p.noAttackStreak = gotAttack ? 0 : p.noAttackStreak + 1;
+
+  // 聲量自然成長，後期加速
+  p.voice = Math.min(100, p.voice + (s.round >= 7 ? 15 : 10));
+
+  // 被包圍：每回合被對方拉走 2 人
+  for (const st of p.statuses) {
+    if (st.id === 'encircle') {
+      const n = Math.min(2, p.supporters);
+      p.supporters -= n;
+      s.players[st.from].supporters += n;
+      emit(s, { type: 'encircle', side, n, msg: `被包圍，流失 ${n} 人` });
+    }
+  }
+
+  // 召喚物與場地
+  for (const sm of p.summons) {
+    pull(s, side, sm.perTurn, { raw: true });
+    sm.turns -= 1;
+  }
+  p.summons = p.summons.filter((sm) => sm.turns > 0);
+  if (s.field && s.field.owner === side) {
+    pull(s, side, 3, { raw: true });
+    s.field.turns -= 1;
+    if (s.field.turns <= 0) s.field = null;
+  }
+  emit(s, { type: 'turnStart', side, round: s.round });
+  checkWin(s);
+}
+
+export function endTurn(s) {
+  if (s.over) return;
+  const side = s.current;
+  const p = s.players[side];
+  for (const st of p.statuses) st.turns -= 1;
+  p.statuses = p.statuses.filter((st) => st.turns > 0);
+  if (p.hand.length === 0) p.emptyHandBonus = 1;
+  emit(s, { type: 'turnEnd', side });
+
+  s.turnIndex += 1;
+  s.current = other(side);
+  if (s.current === s.first) s.round += 1;
+  if (s.round > RULES.maxRounds) return finishByCount(s);
+  startTurn(s);
+}
+
+function checkWin(s) {
+  for (const side of ['blue', 'green']) {
+    if (s.players[side].supporters >= RULES.winAt) {
+      s.over = true; s.winner = side; s.reason = '支持者過半';
+      emit(s, { type: 'gameOver', winner: side });
+      return true;
+    }
+  }
+  return false;
+}
+
+function finishByCount(s) {
+  const b = s.players.blue, g = s.players.green;
+  let w;
+  if (b.supporters !== g.supporters) { w = b.supporters > g.supporters ? 'blue' : 'green'; s.reason = '第 12 回合結束，支持者較多'; }
+  else if (b.hand.length !== g.hand.length) { w = b.hand.length > g.hand.length ? 'blue' : 'green'; s.reason = '支持者同數，比手牌'; }
+  else if (b.voice !== g.voice) { w = b.voice > g.voice ? 'blue' : 'green'; s.reason = '支持者與手牌同數，比聲量'; }
+  else { w = 'draw'; s.reason = '完全平手'; }
+  s.over = true; s.winner = w;
+  emit(s, { type: 'gameOver', winner: w });
+}
+
+// ── 出牌 ───────────────────────────────
+export function cardCost(s, side, card) {
+  return card.cost + (hasStatus(s.players[side], 'question') ? 1 : 0);
+}
+
+export function canPlay(s, side, uid) {
+  if (s.over || s.current !== side) return false;
+  const p = s.players[side];
+  const c = p.hand.find((x) => x.uid === uid);
+  if (!c) return false;
+  if (c.type === 'trap' && p.traps.length >= 2) return false;
+  return cardCost(s, side, c) <= p.ap;
+}
+
+export function playCard(s, side, uid) {
+  if (!canPlay(s, side, uid)) return false;
+  const p = s.players[side];
+  const oppSide = other(side);
+  const opp = s.players[oppSide];
+  const idx = p.hand.findIndex((x) => x.uid === uid);
+  const c = p.hand[idx];
+  p.ap -= cardCost(s, side, c);
+  const q = p.statuses.find((x) => x.id === 'question');
+  if (q && --q.charges <= 0) removeStatus(p, 'question');
+  p.hand.splice(idx, 1);
+  if (c.type === 'trap') emit(s, { type: 'play', side, hidden: true }); // 陷阱是蓋牌，不公開名稱
+  else emit(s, { type: 'play', side, card: c.id, name: c.name, msg: `${side === 'blue' ? '藍' : '綠'}方打出「${c.name}」` });
+
+  const fx = c.fx;
+  const isAttack = fx.pull || fx.poach;
+
+  if (isAttack) {
+    // 對方的大反射：攻擊轉向
+    if (hasStatus(opp, 'reflect')) {
+      removeStatus(opp, 'reflect');
+      emit(s, { type: 'reflect', side: oppSide, msg: '問A答B・大反射：攻擊轉向！' });
+      if (fx.pull) pull(s, oppSide, fx.pull, { raw: true });
+      if (fx.poach) poach(s, oppSide, fx.poach);
+      checkWin(s);
+      return true;
+    }
+    // 自己頭暈：50% 打歪
+    if (hasStatus(p, 'deflect')) {
+      removeStatus(p, 'deflect');
+      if (rand(s) < 0.5) {
+        emit(s, { type: 'miss', side, msg: '頭暈轉圈，這張打歪了' });
+        return true;
+      }
+    }
+  }
+
+  if (fx.pull) pull(s, side, fx.pull, { fromCard: true });
+  if (fx.poach) poach(s, side, fx.poach);
+  if (fx.voice) p.voice = Math.min(100, p.voice + fx.voice);
+  if (fx.draw) for (let i = 0; i < fx.draw; i++) drawCard(s, side);
+  if (fx.ap) p.ap += fx.ap;
+  if (fx.applyStatus) {
+    addStatus(s, oppSide, fx.applyStatus.id, fx.applyStatus.turns, side);
+    registerHit(s, oppSide);
+  }
+  if (fx.summon) { p.summons.push({ ...fx.summon }); emit(s, { type: 'summon', side, name: fx.summon.name }); }
+  if (fx.field) {
+    s.field = { owner: side, turns: 2, card: c.id };
+    emit(s, { type: 'field', side, msg: '造勢晚會開始！' });
+  }
+  if (fx.trap) { p.traps.push(c); emit(s, { type: 'setTrap', side }); }
+  checkWin(s);
+  return true;
+}
+
+// ── 聲量爆表：大絕招或爆表狀態 ─────────
+export function availableUlts(s, side) {
+  const p = s.players[side];
+  if (s.over || s.current !== side || p.voice < 100 || hasStatus(p, 'gaffe')) return [];
+  return ULTS[side].filter((u) => !p.usedUlts.includes(u.id) && (!u.minRound || s.round >= u.minRound));
+}
+export const canBurst = (s, side) => {
+  const p = s.players[side];
+  return !s.over && s.current === side && p.voice >= 100;
+};
+
+export function enterBurst(s, side) {
+  if (!canBurst(s, side)) return false;
+  const p = s.players[side];
+  p.voice = 0;
+  addStatus(s, side, 'burst', 2, side);
+  emit(s, { type: 'burst', side, msg: '聲量爆表！2 回合拉票 +50%' });
+  return true;
+}
+
+export function useUlt(s, side, ultId) {
+  const u = availableUlts(s, side).find((x) => x.id === ultId);
+  if (!u) return false;
+  const p = s.players[side];
+  const oppSide = other(side);
+  const opp = s.players[oppSide];
+  p.voice = 0;
+  p.usedUlts.push(u.id);
+  emit(s, { type: 'ult', side, ult: u.id, name: u.name, msg: `大絕招「${u.name}」！` });
+  switch (u.id) {
+    case 'u_shield': {
+      addStatus(s, side, 'ultBoost', 1, side);
+      const bad = p.statuses.find((st) => ['encircle', 'question', 'deflect', 'gaffe'].includes(st.id));
+      if (bad) removeStatus(p, bad.id);
+      break;
+    }
+    case 'u_birds': p.summons.push({ perTurn: 3, turns: 3, name: '青鳥群' }); break;
+    case 'u_team': p.summons.push({ perTurn: 3, turns: 3, name: '市政團隊' }); break;
+    case 'u_reflect': addStatus(s, side, 'reflect', 2, side); break;
+    case 'u_swap': {
+      const mine = p.statuses, theirs = opp.statuses;
+      p.statuses = theirs.map((st) => ({ ...st, from: st.from === side ? oppSide : side }));
+      opp.statuses = mine.map((st) => ({ ...st, from: st.from === side ? oppSide : side }));
+      pull(s, side, Math.floor(s.round / 2), { raw: true }); // 與市政成績單對等
+      break;
+    }
+    case 'u_report': {
+      opp.statuses = opp.statuses.filter((st) => !['burst', 'sympathy', 'ultBoost', 'reflect'].includes(st.id));
+      if (s.field && s.field.owner === oppSide) s.field = null;
+      pull(s, side, Math.floor(s.round / 2), { raw: true });
+      break;
+    }
+  }
+  checkWin(s);
+  return true;
+}
+
+// 讓畫面取走並清空事件
+export function takeEvents(s) { const e = s.events; s.events = []; return e; }

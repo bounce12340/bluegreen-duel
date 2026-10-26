@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>藍綠對決｜政治諷刺卡牌遊戲</title>
+<meta name="description" content="政治諷刺娛樂卡牌遊戲。非任何候選人、政黨或競選團隊製作，內容不代表當事人言行。">
+<meta name="theme-color" content="#cfe6ff">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- 維護／投票日關閉 -->
+  <section id="closed" class="screen hidden">
+    <div class="panel">
+      <h1 class="logo">藍綠對決</h1>
+      <p id="closed-msg"></p>
+      <p class="small">聯絡：<a class="contact-link"></a></p>
+    </div>
+  </section>
+
+  <!-- 首頁 -->
+  <section id="title" class="screen hidden">
+    <div class="title-bg"></div>
+    <div class="panel title-panel">
+      <h1 class="logo"><span class="b">藍</span><span class="g">綠</span>對決</h1>
+      <p class="tagline">拉攏中間選民，先過半的人贏！</p>
+      <div class="pick">
+        <button class="pick-btn blue" data-side="blue">
+          <img src="assets/blue_idle.webp" alt="萬安號" width="96" height="120">
+          <span class="nameplate">萬安號</span><span class="small">蔣萬安陣營</span>
+        </button>
+        <button class="pick-btn green" data-side="green">
+          <img src="assets/green_idle.webp" alt="伯洋號" width="96" height="120">
+          <span class="nameplate">伯洋號</span><span class="small">沈伯洋陣營</span>
+        </button>
+      </div>
+      <p class="small center">選一邊開始，對手由電腦操控</p>
+      <div class="links">
+        <button class="link" data-open="rules">怎麼玩</button>
+        <button class="link" data-open="privacy">隱私聲明</button>
+        <a class="link sponsor-link hidden" target="_blank" rel="noopener">贊助</a>
+      </div>
+      <p class="disclaimer">本作為政治諷刺娛樂，非任何候選人、政黨或競選團隊製作，內容不代表當事人言行。角色為原創 Q 版人偶，美術由 AI 生成。</p>
+    </div>
+  </section>
+
+  <!-- 對戰 -->
+  <section id="battle" class="screen hidden">
+    <img class="bg" src="assets/bg_cityhall.webp" alt="">
+    <canvas id="crowd"></canvas>
+
+    <div class="topbar">
+      <span id="round">第 1 / 12 回合</span>
+      <span id="neutral">中間選民 100</span>
+      <span id="timer" class="timer">60</span>
+      <button id="mute" class="icon-btn" aria-label="靜音">🔊</button>
+      <button id="menu" class="icon-btn" aria-label="選單">☰</button>
+    </div>
+
+    <div id="opp-info" class="info opp"></div>
+    <div id="field-banner" class="field-banner hidden">🎪 造勢晚會</div>
+
+    <div class="platform opp-plat" id="opp-plat"></div>
+    <img id="opp-mascot" class="mascot opp" alt="">
+    <div class="platform me-plat" id="me-plat"></div>
+    <img id="me-mascot" class="mascot me" alt="">
+
+    <div id="me-info" class="info me"></div>
+    <div id="toasts"></div>
+
+    <div class="dock">
+      <div class="dock-row">
+        <div id="ap" class="ap"></div>
+        <button id="ult-btn" class="ult-btn hidden">🔥 聲量爆表</button>
+        <button id="end-btn" class="end-btn">結束回合</button>
+      </div>
+      <div id="hand" class="hand"></div>
+    </div>
+  </section>
+
+  <!-- 彈窗 -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box" id="modal-box"></div>
+  </div>
+
+  <footer id="footer">
+    <span>非官方製作・美術由 AI 生成</span>
+    <a class="contact-link"></a>
+  </footer>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
