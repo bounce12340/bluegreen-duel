@@ -1,6 +1,6 @@
 // 電腦對電腦平衡模擬
 import { createGame } from '../site/js/engine.js';
-import { aiTakeTurn } from '../site/js/ai.js';
+import { aiTakeTurn, newProfile } from '../site/js/ai.js';
 const N = +(process.argv[2] || 1000);
 const res = { blue: 0, green: 0, draw: 0 }, firstWin = { yes: 0, no: 0 };
 let rounds = 0, byMajority = 0, margins = 0;
@@ -8,8 +8,9 @@ const ultUse = {}, cardPlays = {};
 let declares = 0, bluffs = 0, challenges = 0, caught = 0;
 for (let i = 0; i < N; i++) {
   const s = createGame({ seed: 1000 + i });
+  const profiles = { blue: newProfile(), green: newProfile() };
   while (!s.over) {
-    const acts = aiTakeTurn(s, s.current);
+    const acts = aiTakeTurn(s, s.current, { profiles });
     for (const ev of s.log) { /* log 只保留最近 30 筆，統計改看 actions */ }
     for (const a of acts) {
       if (a.kind === 'declare') { declares++; }

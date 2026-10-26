@@ -16,13 +16,21 @@
 1. `worker/` → Worker `bluegreen-duel-server`
 2. 網站 → Pages 專案 `bluegreen-duel`
 
-repo secrets：`CLOUDFLARE_API_TOKEN`（Pages Edit、Workers Scripts Edit）、`CLOUDFLARE_ACCOUNT_ID`
+repo secrets：`CLOUDFLARE_API_TOKEN`（Pages Edit、Workers Scripts Edit）、`CLOUDFLARE_ACCOUNT_ID`、`TYPESAFE_API_KEY`（Jev）
 
 ## 不用重新部署的開關（Cloudflare 後台 → Workers & Pages → bluegreen-duel-server → Settings → Variables）
 - `MAINTENANCE` = `1`：全站維護頁、停止新對局（改回 `0` 或刪除即恢復）
 - `MAINTENANCE_MSG`：維護頁文字
 - `DISABLED_CARDS`：停用卡牌 id，逗號分隔，例如 `s_gaffe,g_question`
 - `TURNSTILE_SITE_KEY`＋祕密 `TURNSTILE_SECRET`：設了才啟用真人驗證
+- `JEV_DISABLED` = `1`：關閉 Jev 判斷，電腦只用歷史紀錄；`JEV_DAILY_CAP`（預設 50000）、`JEV_PER_IP_PER_MIN`（預設 20）
+
+## 電腦對手（site/js/ai.js）
+- 期望值決策：出牌、跳過存行程點、吹牛、質疑都比較期望值
+- 記住玩家習慣（瀏覽器 localStorage `bg_profile`）：被抓過幾次吹牛、多常質疑，跨局累積
+- 質疑時請伺服器問 TypeSafe Jev「這次像不像吹牛」（`worker/src/jev.js`，問題與狀態都在這個檔案），與歷史紀錄加權；Jev 失敗或逾時就只用歷史紀錄
+- 送給 Jev 的只有遊戲數字與卡牌效果，不含暱稱、IP 或個人資料；伺服器只接受固定格式的數字，不接受自由文字
+- 適應力測試：`node tools/adapt_test.mjs`
 
 ## 連線規則
 - 隨機配對優先配不同陣營，等 12 秒以上改為不分陣營；畫面倒數 30 秒，沒配到自動改跟電腦對戰（`site/js/config.js` 的 `MATCH_SECONDS`）
@@ -42,6 +50,7 @@ python3 tools/pvp_timeout_test.py   # 逾時與斷線判負（約 100 秒）
 python3 tools/match_timeout_test.py # 配對倒數改電腦、幽靈對手判負（約 80 秒）
 python3 tools/challenge_test.py     # 質疑：對電腦、連線吹牛被抓、說實話逾時放行、真牌不外洩
 python3 tools/fx_test.py            # 一回合一張牌、出牌演出、卡圖、打完整局
+python3 tools/jev_client_test.py    # Jev 判斷與失敗時改用歷史紀錄（本機用假 Jev 伺服器）
 ```
 
 ## 單機版備用設定（site/js/config.js，需重新部署）

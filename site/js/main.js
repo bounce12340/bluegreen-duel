@@ -5,7 +5,7 @@ import {
   canBurst, enterBurst, useUlt, neutral, hasStatus,
   CARD_BY_ID, canDeclareAny, canDeclare, declareCard, declarableCards, respond,
 } from './engine.js';
-import { aiStep, aiRespond } from './ai.js';
+import { aiStep, respondDecision, newProfile, observeEvents } from './ai.js';
 import { createCrowd } from './crowd.js';
 import { unlock, sfx, isMuted, setMuted } from './sound.js';
 import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
@@ -25,6 +25,13 @@ let game = null, me = 'blue', opp = 'green', busy = false, timerId = null, timeL
 // 出牌演出：卡牌先放大展示，結束後才更新比分與群眾
 let fxChain = Promise.resolve(), holdBoard = false, animating = 0, castSkip = null;
 const art = (id) => `assets/cards/${id}.webp`;
+// 電腦記住「你」的習慣（被抓過幾次吹牛、多常質疑），存在這台裝置的瀏覽器，跨局累積
+let profile = loadProfile();
+let humanSkippedLast = false;
+function loadProfile() {
+  try { return { ...newProfile(), ...JSON.parse(localStorage.getItem('bg_profile') || '{}') }; } catch { return newProfile(); }
+}
+function saveProfile() { try { localStorage.setItem('bg_profile', JSON.stringify(profile)); } catch { /* 忽略 */ } }
 // 連線模式狀態
 let mode = 'local';          // 'local' 對戰電腦｜'online' 連線
 let server = { online: false };
@@ -241,6 +248,7 @@ function toast(msg, side, big = false) {
 // 把引擎事件排進演出佇列：卡牌先放大展示，再播效果、更新比分。回傳演出結束的 Promise。
 function playEvents() {
   const events = takeEvents(game);
+  if (mode === 'local' && events.length) { observeEvents(profile, events, me); saveProfile(); }
   const myGen = gen;
   animating += 1;
   fxChain = fxChain.then(() => (myGen === gen ? animateEvents(events) : null)).catch(() => {}).then(() => {
@@ -431,6 +439,7 @@ async function doPlay(uid) {
   if (!isMyTurn()) return;
   if (mode === 'online') { send({ t: 'play', uid }); closeModal(); return; }
   if (!playCard(game, me, uid)) return;
+  humanSkippedLast = false;
   closeModal();
   const myGen = gen;
   render();
@@ -451,6 +460,7 @@ async function endMyTurn() {
   if (game.pending) return;
   clearInterval(timerId);
   const saved = game.players[me].ap;
+  humanSkippedLast = true;
   endTurn(game);
   toast(timeLeft > 0 ? `跳過，行程點 ${saved} 點存著` : '時間到，自動跳過', me);
   const myGen = gen;
@@ -470,7 +480,7 @@ async function runAI() {
   for (let i = 0; i < 6; i++) {
     if (myGen !== gen || game.over) return;
     if (game.current !== opp) break; // 主牌打完已經換人
-    const a = aiStep(game, opp);
+    const a = aiStep(game, opp, profile);
     if (!a) break;
     render();
     await playEvents();
@@ -566,20 +576,52 @@ function openDeclare(uid) {
 async function doDeclare(uid, asId) {
   if (!isMyTurn()) return;
   if (mode === 'online') { send({ t: 'declare', uid, as: asId }); closeModal(); return; }
+  const apBefore = game.players[me].ap;
   if (!declareCard(game, me, uid, asId)) return;
+  const skipped = humanSkippedLast;
+  humanSkippedLast = false;
   closeModal();
   const myGen = gen;
+  // 電腦一邊播演出，一邊請 Jev 判斷「這次像不像吹牛」
+  const jevAsk = askJevBluff({
+    asId, round: Math.min(game.round, RULES.maxRounds), apBefore, skippedLastTurn: skipped,
+    handSize: game.players[me].hand.length,
+    declarerSupporters: game.players[me].supporters, otherSupporters: game.players[opp].supporters,
+    history: { bluffs: profile.bluffs, honest: profile.honest },
+  });
   render();
   await playEvents();
   if (myGen !== gen || !game || !game.pending) return;
   showWaitingRespond(Date.now() + 1800);
-  await sleep(1300 + Math.random() * 900); // 電腦想一下
+  const [jevBluff] = await Promise.all([jevAsk, sleep(1300 + Math.random() * 900)]); // 電腦想一下
   if (myGen !== gen || !game || !game.pending) return;
-  respond(game, opp, aiRespond(game, opp));
+  const d = respondDecision(game, opp, { profile, jevBluff });
+  respond(game, opp, d.challenge);
+  toast(`電腦研判你吹牛的機率：${Math.round(d.p * 100)}%${d.wJev ? '（含 Jev 判斷）' : ''}`, opp);
   closeModal();
   render();
   await playEvents();
   if (myGen === gen) afterMyAction();
+}
+
+// 請伺服器問 Jev。只送遊戲數字；失敗或逾時回傳 null（改用歷史紀錄），不會當成「不是吹牛」
+async function askJevBluff(facts) {
+  if (!server.jev) return null;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const r = await fetch('/api/ai/read', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(facts), signal: ctrl.signal,
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    return typeof d.bluff === 'number' ? d.bluff : null;
+  } catch (e) {
+    console.warn('Jev 判斷失敗，這次改用歷史紀錄：', e.message || e);
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 // 對手蓋牌宣告：跳出質疑／放行，限時 8 秒，時間到視同放行
@@ -697,7 +739,8 @@ function openPrivacy() {
   openModal(`<h2>隱私聲明</h2>
     <p>不需註冊，不蒐集姓名、電子郵件或其他聯絡資料。</p>
     <p><b>連線對戰</b>時，伺服器會暫存你輸入的暱稱、隨機產生的玩家識別碼與對局內容，只用來進行這一局；對局結束約 1 分鐘後刪除。暱稱會顯示給對手。</p>
-    <p>你的瀏覽器會在你的裝置上記住：是否靜音、是否看過教學、上次用的暱稱，以及進行中對局的識別碼（關閉分頁即清除）。</p>
+    <p>你的瀏覽器會在你的裝置上記住：是否靜音、是否看過教學、上次用的暱稱、進行中對局的識別碼（關閉分頁即清除），以及<b>你對戰電腦時的出牌習慣統計</b>（被抓到吹牛幾次、多常質疑），讓電腦學著猜你。這些統計只存在你的裝置上。</p>
+    <p><b>對戰電腦時</b>，你蓋牌宣告的當下，伺服器可能把<b>遊戲數字</b>（回合、雙方人數、宣告的卡、上述習慣統計）送到 TypeSafe 的 Jev 模型，請它判斷你像不像在吹牛。送出的資料不含暱稱、IP 或任何個人資料。</p>
     <p>網站與連線伺服器由 Cloudflare 託管。Cloudflare 會為了安全與維運記錄連線資訊（例如 IP 位址），依其隱私權政策處理；若啟用真人驗證（Cloudflare Turnstile），也適用其隱私權政策。本站自行記錄的連線資訊保存不超過 30 天。本站沒有使用廣告或追蹤工具。</p>
     <p>問題或要求：<a href="mailto:${CONFIG.CONTACT_EMAIL}">${CONFIG.CONTACT_EMAIL}</a></p>
     <p class="small">本作為政治諷刺娛樂，非任何候選人、政黨或競選團隊製作，內容不代表當事人言行。角色為原創 Q 版人偶，美術由 AI 生成。</p>

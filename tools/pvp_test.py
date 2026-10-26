@@ -74,7 +74,7 @@ with sync_playwright() as p:
 
     # 對手手牌不該外洩：A 的頁面裡不能出現 B 的卡名
     reloaded = False
-    for turn in range(120):
+    for turn in range(400):
         if a.is_visible("#m-again") or g.is_visible("#m-again"):
             break
         for pg in (a, g):

@@ -8,6 +8,7 @@ import {
   declareCard, respond, hasStatus, RULES,
 } from '../../site/js/engine.js';
 import { checkName, cleanName } from '../../site/js/names.js';
+import { parseFacts, askJev, JEV_MODEL } from './jev.js';
 
 const MAX_ROOMS = 200;
 const TURN_MS = 30_000;           // 一回合只出一張牌，30 秒
@@ -77,13 +78,19 @@ export default {
     if (path === '/status') {
       const msg = closedMessage(env);
       return json({
-        online: true, maintenance: !!msg, msg,
+        online: true, maintenance: !!msg, msg, jev: jevEnabled(env),
         turnstileSiteKey: env.TURNSTILE_SITE_KEY || null,
         disabledCards: disabledCards(env), serverNow: Date.now(),
       });
     }
     const msg = closedMessage(env);
     if (msg) return json({ error: 'closed', msg }, 503);
+
+    // 電腦對手的 Jev 判斷：所有請求都經過同一個計數器（頻率限制＋每日上限）
+    if (path === '/ai/read' && req.method === 'POST') {
+      if (!jevEnabled(env)) return json({ error: 'jev disabled' }, 503);
+      return env.JEV_GATE.get(env.JEV_GATE.idFromName('global')).fetch(req);
+    }
 
     const lobby = env.LOBBY.get(env.LOBBY.idFromName('main'));
     if (path === '/lobby' || path === '/create') return lobby.fetch(req);
@@ -92,6 +99,49 @@ export default {
     return json({ error: 'not found' }, 404);
   },
 };
+
+// ── Jev 判斷閘門：頻率限制、每日上限、呼叫 API ─────────
+// 開關：JEV_ENABLED 寫在 wrangler.toml；緊急關閉在後台設 JEV_DISABLED=1（不會被部署蓋掉）
+const jevEnabled = (env) => env.JEV_ENABLED === '1' && env.JEV_DISABLED !== '1' && !!env.TYPESAFE_API_KEY;
+
+export class JevGate extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.perIp = new Map(); // ip → { minute, n }（休眠後重置，無妨）
+  }
+
+  async fetch(req) {
+    const env = this.env;
+    const ip = req.headers.get('cf-connecting-ip') || 'unknown';
+    const minute = Math.floor(Date.now() / 60_000);
+    const rec = this.perIp.get(ip);
+    const perMin = Number(env.JEV_PER_IP_PER_MIN || 20);
+    if (rec && rec.minute === minute && rec.n >= perMin) return json({ error: 'rate limited' }, 429);
+    this.perIp.set(ip, rec && rec.minute === minute ? { minute, n: rec.n + 1 } : { minute, n: 1 });
+    if (this.perIp.size > 5000) this.perIp.clear();
+
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date());
+    const key = `count:${day}`;
+    const used = (await this.ctx.storage.get(key)) || 0;
+    if (used >= Number(env.JEV_DAILY_CAP || 50000)) return json({ error: 'daily cap reached' }, 429);
+
+    let facts;
+    try { facts = parseFacts(await req.json()); } catch { facts = null; }
+    if (!facts) return json({ error: 'bad request' }, 400);
+
+    await this.ctx.storage.put(key, used + 1);
+    try {
+      // JEV_URL_OVERRIDE 只給本機測試用（假的 Jev 伺服器）；正式環境不設
+      const r = await askJev(env.TYPESAFE_API_KEY, facts, env.JEV_URL_OVERRIDE || undefined);
+      // 記錄完整請求內容（不含個資），方便日後重跑與除錯
+      console.log(JSON.stringify({ jev: 'ok', model: r.model, bluff: r.bluff, usage: r.usage, payload: r.payload }));
+      return json({ bluff: r.bluff, model: r.model });
+    } catch (e) {
+      console.log(JSON.stringify({ jev: 'error', error: String(e).slice(0, 300), facts }));
+      return json({ error: 'jev unavailable' }, 502);
+    }
+  }
+}
 
 // ── 配對大廳 ───────────────────────────────
 export class Lobby extends DurableObject {

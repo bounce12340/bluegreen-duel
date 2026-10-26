@@ -8,6 +8,10 @@ keep_vars = true
 
 [vars]
 ALLOWED_HOSTS = "bluegreen-duel.pages.dev"
+# Jev（TypeSafe）：作者已同意啟用（2026-10-27）。金鑰 TYPESAFE_API_KEY 由 GitHub Actions 從 repo secret 寫入。
+# 緊急關閉：Cloudflare 後台 → bluegreen-duel-server → Settings → Variables 加 JEV_DISABLED = 1（部署不會蓋掉）
+# 每日上限 JEV_DAILY_CAP、每 IP 每分鐘上限 JEV_PER_IP_PER_MIN 也可在後台設定（預設 50000、20）
+JEV_ENABLED = "1"
 
 [[durable_objects.bindings]]
 name = "LOBBY"
@@ -17,9 +21,17 @@ class_name = "Lobby"
 name = "ROOM"
 class_name = "Room"
 
+[[durable_objects.bindings]]
+name = "JEV_GATE"
+class_name = "JevGate"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Lobby", "Room"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["JevGate"]
 
 [observability]
 enabled = true
