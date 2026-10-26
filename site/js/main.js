@@ -3,8 +3,9 @@ import { ULTS, STATUS_INFO, SIDE_NAME, SIDE_FULL } from './cards.js';
 import {
   RULES, createGame, playCard, canPlay, cardCost, endTurn, takeEvents, availableUlts,
   canBurst, enterBurst, useUlt, neutral, hasStatus,
+  CARD_BY_ID, canDeclareAny, canDeclare, declareCard, declarableCards, respond,
 } from './engine.js';
-import { aiStep } from './ai.js';
+import { aiStep, aiRespond } from './ai.js';
 import { createCrowd } from './crowd.js';
 import { unlock, sfx, isMuted, setMuted } from './sound.js';
 import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
@@ -120,7 +121,7 @@ function nextPhase() {
   else runAI();
 }
 
-const isMyTurn = () => game && !game.over && !busy && game.current === me
+const isMyTurn = () => game && !game.over && !busy && !game.pending && game.current === me
   && (mode === 'local' || (sock && sock.readyState === 1));
 
 // ── 畫面 ─────────────────────────────────
@@ -132,7 +133,12 @@ function infoHTML(side, mine) {
     return `<span class="chip ${info.bad ? 'bad' : 'good'}">${info.icon}${info.name}</span>`;
   });
   for (const sm of p.summons) chips.push(`<span class="chip good">👥${sm.name}×${sm.turns}</span>`);
-  if (p.traps.length) chips.push(`<span class="chip">🪤蓋牌×${p.traps.length}</span>`);
+  if (p.traps.length) {
+    const shown = p.traps.filter((t) => t && t.name).map((t) => t.name);
+    chips.push(mine || !shown.length
+      ? `<span class="chip">🪤蓋牌×${p.traps.length}</span>`
+      : `<span class="chip bad">🔍${shown.map(esc).join('、')}</span>`);
+  }
   if (!mine) chips.push(`<span class="chip">🂠手牌×${p.hand.length}</span>`);
   return `
     ${names[side] ? `<div class="small nick">👤 ${esc(names[side])}${mine ? '（你）' : ''}</div>` : ''}
@@ -264,6 +270,32 @@ function playEvents() {
       case 'setTrap': if (ev.side === opp) toast('對手蓋了一張牌…', opp); break;
       case 'discard': if (ev.side === me) toast(ev.msg); break;
       case 'timeout': toast(`${who}${ev.msg}`, ev.side); break;
+      case 'declare':
+        sfx.card();
+        if (ev.side === me) toast(`你蓋牌宣告「${ev.name}」`, me);
+        break;
+      case 'pass':
+        toast(ev.side === me ? `你放行了，「${ev.name}」生效` : `對手放行，「${ev.name}」生效`, other(ev.side));
+        break;
+      case 'challenge': {
+        sfx.trap();
+        const iChallenged = ev.side === me;
+        const lost = (n) => (n > 0 ? `-${n} 人、` : '');
+        if (ev.caught) {
+          toast(iChallenged ? `抓到吹牛！其實是「${ev.actual}」，對手${lost(ev.n)}聲量 -${RULES.caughtVoice}` : `被抓包！你宣告的其實是「${ev.actual}」，${lost(ev.n)}聲量 -${RULES.caughtVoice}`, ev.side, true);
+          pulse(other(ev.side), 'hit');
+          if (iChallenged) meReact('big');
+        } else {
+          const tail = ev.n > 0 ? `，${iChallenged ? '你' : '對手'} -${ev.n} 人` : '';
+          toast(iChallenged ? `質疑失敗！「${ev.name}」是真的${tail}` : `對手質疑失敗！「${ev.name}」是真的${tail}`, other(ev.side), true);
+          pulse(ev.side, 'hit');
+          if (!iChallenged) meReact('joy'); else oppReact('smug', 1600);
+        }
+        break;
+      }
+      case 'expose':
+        toast(ev.side === me ? `你的陷阱被翻開了：${ev.traps.join('、')}` : `對手的陷阱翻開了：${ev.traps.join('、')}`, other(ev.side), true);
+        break;
       case 'gameOver': setTimeout(showResult, 900); break;
       default: break;
     }
@@ -327,6 +359,13 @@ async function runAI() {
     if (!a) break;
     playEvents();
     render();
+    if (game.pending) {
+      const challenge = await askChallenge(Date.now() + RULES.respondSeconds * 1000);
+      if (myGen !== gen || game.over) return;
+      respond(game, me, challenge);
+      playEvents();
+      render();
+    }
     await sleep(1000);
   }
   if (myGen !== gen || game.over) { busy = false; return; }
@@ -366,9 +405,116 @@ function openCard(uid) {
     <div class="btns">
       <button class="btn" id="m-cancel">取消</button>
       <button class="btn ${me}" id="m-play" ${ok ? '' : 'disabled'}>打出</button>
-    </div>`);
+    </div>
+    ${c.type !== 'trap' && isMyTurn() ? `<div class="btns"><button class="btn bluff" id="m-declare" ${canDeclareAny(game, me) ? '' : 'disabled'}>🂠 蓋牌宣告…</button></div>
+      <p class="small center">${declareHint()}</p>` : ''}`);
   $('#m-cancel').onclick = closeModal;
   $('#m-play').onclick = () => doPlay(uid);
+  if ($('#m-declare')) $('#m-declare').onclick = () => openDeclare(uid);
+}
+
+function declareHint() {
+  const p = game.players[me];
+  if (hasStatus(p, 'exposed')) return '被起底中，這回合不能蓋牌宣告';
+  if (game.declaredThisTurn) return '每回合只能蓋牌宣告 1 次';
+  return '把這張蓋著打出，宣告成任何一張牌。對手可以質疑。';
+}
+
+// 選要宣告成哪一張
+function openDeclare(uid) {
+  const real = game.players[me].hand.find((x) => x.uid === uid);
+  if (!real) return;
+  const ap = game.players[me].ap;
+  const list = declarableCards(game, me)
+    .sort((a, b) => (a.id === real.id ? -1 : b.id === real.id ? 1 : a.cost - b.cost));
+  const items = list.map((c) => {
+    const cost = cardCost(game, me, c);
+    const ok = canDeclare(game, me, uid, c.id);
+    return `<button class="decl-item ${c.side === 'shared' ? '' : c.side}" data-as="${c.id}" ${ok ? '' : 'disabled'}>
+      <span class="cost">${cost}</span><b>${c.name}${c.id === real.id ? '<em>（說實話）</em>' : ''}</b><span>${c.short || c.text}</span></button>`;
+  }).join('');
+  openModal(`<h2>蓋牌宣告</h2>
+    <p class="small">手上這張是「${real.name}」。要宣告成哪一張？行程點照宣告的那張付（你有 ${ap} 點）。</p>
+    <div class="decl-list">${items}</div>
+    <p class="small">吹牛被抓：你 -${RULES.bluffPenalty} 人（聲量爆表時加倍）、聲量 -${RULES.caughtVoice}，效果作廢。對手冤枉你：對手 -${RULES.wrongChallenge} 人，效果照常。</p>
+    <div class="btns"><button class="btn" id="m-back">返回</button></div>`, { pause: true });
+  $('#m-back').onclick = () => openCard(uid);
+  for (const b of document.querySelectorAll('[data-as]')) b.onclick = () => doDeclare(uid, b.dataset.as);
+}
+
+async function doDeclare(uid, asId) {
+  if (!isMyTurn()) return;
+  if (mode === 'online') { send({ t: 'declare', uid, as: asId }); closeModal(); return; }
+  if (!declareCard(game, me, uid, asId)) return;
+  closeModal();
+  playEvents();
+  render();
+  const myGen = gen;
+  showWaitingRespond(Date.now() + 1500);
+  await sleep(1200 + Math.random() * 900); // 電腦想一下
+  if (myGen !== gen || !game || !game.pending) return;
+  respond(game, opp, aiRespond(game, opp));
+  closeModal();
+  playEvents();
+  render();
+}
+
+// 對手蓋牌宣告：跳出質疑／放行，限時 8 秒，時間到視同放行
+let respondTimer = null;
+function askChallenge(deadlineAt) {
+  return new Promise((resolve) => {
+    const pd = game.pending;
+    const as = CARD_BY_ID[pd.asId];
+    let done = false;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      clearInterval(respondTimer);
+      closeModal();
+      resolve(v);
+    };
+    openModal(`<h2>對手蓋牌宣告</h2>
+      <div class="big-card ${as.side === 'shared' ? '' : as.side} facedown">
+        <div class="ico">🂠</div><div class="nm">宣告：${as.name}</div>
+        <div class="meta">${TYPE[as.type][1]}卡・行程點 ${as.cost}</div><div class="tx">${as.text}</div>
+      </div>
+      <div class="count-ring small-ring" id="m-rcount">${RULES.respondSeconds}</div>
+      <p class="small center">質疑要付出：你下回合行程點 -1。<br>抓到吹牛 → 對手 -${RULES.bluffPenalty} 人、聲量 -${RULES.caughtVoice}、效果作廢；猜錯 → 你 -${RULES.wrongChallenge} 人。</p>
+      <div class="btns">
+        <button class="btn" id="m-pass">放行</button>
+        <button class="btn danger" id="m-challenge">🔍 質疑！</button>
+      </div>`, { locked: true });
+    $('#m-pass').onclick = () => finish(false);
+    $('#m-challenge').onclick = () => finish(true);
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((deadlineAt - (Date.now() + clockOffset * (mode === 'online' ? 1 : 0))) / 1000));
+      const el = $('#m-rcount');
+      if (el) { el.textContent = left; el.style.setProperty('--p', `${(left / RULES.respondSeconds) * 100}%`); }
+      if (left <= 0) finish(false);
+    };
+    clearInterval(respondTimer);
+    respondTimer = setInterval(tick, 200);
+    tick();
+  });
+}
+
+// 自己蓋牌宣告後，等對手決定
+function showWaitingRespond(deadlineAt) {
+  const pd = game.pending;
+  if (!pd) return;
+  const as = CARD_BY_ID[pd.asId];
+  openModal(`<h2>等對手決定…</h2>
+    <p class="center">你蓋牌宣告了「${as.name}」</p>
+    <div class="count-ring small-ring" id="m-wcount">${RULES.respondSeconds}</div>
+    <p class="small center">對手正在決定要質疑還是放行</p>`, { locked: true });
+  clearInterval(respondTimer);
+  respondTimer = setInterval(() => {
+    const el = $('#m-wcount');
+    if (!el || !game || !game.pending) { clearInterval(respondTimer); return; }
+    const left = Math.max(0, Math.ceil((deadlineAt - (Date.now() + (mode === 'online' ? clockOffset : 0))) / 1000));
+    el.textContent = left;
+    el.style.setProperty('--p', `${(left / RULES.respondSeconds) * 100}%`);
+  }, 200);
 }
 
 function openUlt() {
@@ -415,6 +561,8 @@ function openRules(first = false) {
       <li><b>聲量條</b>集滿 100 會出現「聲量爆表」：發動大絕招（每招每局一次），或進入爆表狀態 2 回合拉票 +50%。</li>
       <li>越後期，中間選民越難拉。被攻擊 2 次會觸發<b>同情票</b>，下次拉票加倍。</li>
       <li>卡牌：📣攻擊 👥召喚 ✨魔法 🪤陷阱（蓋著等對方觸發）🌀狀態 🎪場地。</li>
+      <li><b>蓋牌宣告</b>：點手牌選「蓋牌宣告」，把牌蓋著打出並宣告成任何一張牌（行程點照宣告的付），可以說實話也可以吹牛，每回合 1 次。</li>
+      <li><b>質疑</b>：對手蓋牌宣告時你有 ${RULES.respondSeconds} 秒決定。質疑要付下回合行程點 -1：抓到吹牛，對手 -${RULES.bluffPenalty} 人、聲量 -${RULES.caughtVoice}，效果作廢；猜錯，你 -${RULES.wrongChallenge} 人。</li>
     </ul>
     <div class="btns"><button class="btn primary" id="m-ok">${first ? '開始！' : '知道了'}</button></div>`, { pause: true });
   $('#m-ok').onclick = closeModal;
@@ -682,6 +830,7 @@ function leaveOnline() {
   if (sock) { try { sock.close(1000, 'leave'); } catch { /* 忽略 */ } }
   if (lobbySock) { try { lobbySock.close(); } catch { /* 忽略 */ } }
   sock = null; lobbySock = null; roomCode = null; battleRoom = null; reconnectUntil = 0;
+  pendingUI = null; clearInterval(respondTimer);
   try { sessionStorage.removeItem('bg_room'); } catch { /* 忽略 */ }
 }
 
@@ -723,13 +872,31 @@ function onRoomMessage(data) {
     if (!game.over && game.current === me) toast(`你的回合（第 ${game.round} 回合）`, me);
   }
   startOnlineTimer();
+  syncPendingUI(v.respondDeadline);
   if (game.over && !resultShown) setTimeout(showResult, 1200);
+}
+
+// 依伺服器狀態開關質疑相關的彈窗
+let pendingUI = null; // 'ask' 我要決定｜'wait' 等對手｜null
+function syncPendingUI(respondDeadline) {
+  const pd = game && !game.over ? game.pending : null;
+  const want = !pd ? null : pd.side === me ? 'wait' : 'ask';
+  if (want === pendingUI) return;
+  if (pendingUI) { clearInterval(respondTimer); closeModal(); }
+  pendingUI = want;
+  if (want === 'wait') showWaitingRespond(respondDeadline);
+  if (want === 'ask') {
+    askChallenge(respondDeadline).then((challenge) => {
+      if (pendingUI === 'ask' && game && game.pending) send({ t: 'respond', challenge });
+    });
+  }
 }
 
 function startOnlineTimer() {
   clearInterval(timerId);
   const tick = () => {
     if (!game || game.over || mode !== 'online') { clearInterval(timerId); return; }
+    if (game.pending) { $('#timer').textContent = '暫停'; return; }
     const prev = timeLeft;
     timeLeft = Math.max(0, Math.ceil((deadline - (Date.now() + clockOffset)) / 1000));
     if (game.current === me && timeLeft <= 10 && timeLeft > 0 && timeLeft !== prev) sfx.tick();

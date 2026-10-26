@@ -29,7 +29,8 @@ repo secrets：`CLOUDFLARE_API_TOKEN`（Pages Edit、Workers Scripts Edit）、`
 - 朋友房 5 碼房號，10 分鐘沒人加入自動關閉
 - 每回合 60 秒（伺服器計時，截止後 1 秒寬限）；斷線 30 秒判負；單局最長 20 分鐘
 - 同時房間上限 200，額滿排隊；每個連線每秒最多 8 則訊息
-- 對手手牌、蓋牌、亂數狀態不會傳到前端
+- 對手手牌、蓋牌、亂數狀態不會傳到前端；蓋牌宣告的真牌只有出牌方收得到
+- 蓋牌宣告：對手 8 秒內決定質疑或放行，這段時間出牌方的 60 秒暫停；沒回應視同放行
 
 ## 本機測試
 ```
@@ -38,6 +39,7 @@ npx wrangler pages dev site --port 8788
 python3 tools/pvp_test.py           # 雙人配對、重連、朋友房
 python3 tools/pvp_timeout_test.py   # 逾時與斷線判負（約 100 秒）
 python3 tools/match_timeout_test.py # 配對倒數改電腦、幽靈對手判負（約 80 秒）
+python3 tools/challenge_test.py     # 質疑：對電腦、連線吹牛被抓、說實話逾時放行、真牌不外洩
 ```
 
 ## 單機版備用設定（site/js/config.js，需重新部署）

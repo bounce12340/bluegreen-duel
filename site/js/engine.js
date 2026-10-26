@@ -13,6 +13,13 @@ export const RULES = {
   apCap: 10,
   pityTurns: 3,       // 連續幾回合沒抽到攻擊卡就保底
   hitsForSympathy: 2,
+  // 質疑
+  bluffPenalty: 5,      // 吹牛被抓，出牌方回到中間的人數（聲量爆表時加倍）
+  wrongChallenge: 3,    // 冤枉對手，質疑方回到中間的人數
+  catchVoice: 15,       // 抓到吹牛，質疑方聲量
+  caughtVoice: 20,      // 吹牛被抓，出牌方聲量也扣（避免前期沒支持者時吹牛零風險）
+  honestVoice: 10,      // 被冤枉，出牌方聲量
+  respondSeconds: 8,    // 對手決定要不要質疑的時間
 };
 
 // mulberry32：狀態只有一個整數，存在 s.rngState
@@ -23,7 +30,7 @@ export function rand(s) {
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
-const CARD_BY_ID = Object.fromEntries(CARDS.map((c) => [c.id, c]));
+export const CARD_BY_ID = Object.fromEntries(CARDS.map((c) => [c.id, c]));
 const poolOf = (s) => s.poolIds.map((id) => CARD_BY_ID[id]).filter(Boolean);
 
 const other = (side) => (side === 'blue' ? 'green' : 'blue');
@@ -41,6 +48,7 @@ export function createGame({ seed = Date.now(), firstSide, disabledCards = [] } 
     seed, rngState: seed >>> 0, round: 1, turnIndex: 0, over: false, winner: null, reason: '',
     players: { blue: newPlayer('blue'), green: newPlayer('green') },
     first: null, current: null, field: null, events: [], log: [],
+    pending: null, declaredThisTurn: false, // 蓋牌宣告等待對手回應
     poolIds: CARDS.filter((c) => !disabledCards.includes(c.id)).map((c) => c.id),
     nextUid: 1,
   };
@@ -157,6 +165,7 @@ function poach(s, side, base) {
 // ── 回合流程 ───────────────────────────
 function startTurn(s) {
   const side = s.current;
+  s.declaredThisTurn = false;
   const p = s.players[side];
   const opp = s.players[other(side)];
   p.ap = Math.min(RULES.apCap, s.round + 1) + p.apBonus;
@@ -216,6 +225,7 @@ function startTurn(s) {
 
 export function endTurn(s) {
   if (s.over) return;
+  if (s.pending) respond(s, other(s.pending.side), false); // 沒回應視同放行
   const side = s.current;
   const p = s.players[side];
   for (const st of p.statuses) st.turns -= 1;
@@ -258,7 +268,7 @@ export function cardCost(s, side, card) {
 }
 
 export function canPlay(s, side, uid) {
-  if (s.over || s.current !== side) return false;
+  if (s.over || s.current !== side || s.pending) return false;
   const p = s.players[side];
   const c = p.hand.find((x) => x.uid === uid);
   if (!c) return false;
@@ -273,13 +283,26 @@ export function playCard(s, side, uid) {
   const opp = s.players[oppSide];
   const idx = p.hand.findIndex((x) => x.uid === uid);
   const c = p.hand[idx];
-  p.ap -= cardCost(s, side, c);
-  const q = p.statuses.find((x) => x.id === 'question');
-  if (q && --q.charges <= 0) removeStatus(p, 'question');
+  payCost(s, side, c);
   p.hand.splice(idx, 1);
   if (c.type === 'trap') emit(s, { type: 'play', side, hidden: true }); // 陷阱是蓋牌，不公開名稱
   else emit(s, { type: 'play', side, card: c.id, name: c.name, msg: `${side === 'blue' ? '藍' : '綠'}方打出「${c.name}」` });
+  resolveEffect(s, side, c);
+  return true;
+}
 
+function payCost(s, side, card) {
+  const p = s.players[side];
+  p.ap -= cardCost(s, side, card);
+  const q = p.statuses.find((x) => x.id === 'question');
+  if (q && --q.charges <= 0) removeStatus(p, 'question');
+}
+
+// 卡牌效果結算：一般出牌與「宣告的卡」共用
+function resolveEffect(s, side, c) {
+  const p = s.players[side];
+  const oppSide = other(side);
+  const opp = s.players[oppSide];
   const fx = c.fx;
   const isAttack = fx.pull || fx.poach;
 
@@ -291,14 +314,14 @@ export function playCard(s, side, uid) {
       if (fx.pull) pull(s, oppSide, fx.pull, { raw: true });
       if (fx.poach) poach(s, oppSide, fx.poach);
       checkWin(s);
-      return true;
+      return;
     }
     // 自己頭暈：50% 打歪
     if (hasStatus(p, 'deflect')) {
       removeStatus(p, 'deflect');
       if (rand(s) < 0.5) {
         emit(s, { type: 'miss', side, msg: '頭暈轉圈，這張打歪了' });
-        return true;
+        return;
       }
     }
   }
@@ -311,6 +334,9 @@ export function playCard(s, side, uid) {
   if (fx.applyStatus) {
     addStatus(s, oppSide, fx.applyStatus.id, fx.applyStatus.turns, side);
     registerHit(s, oppSide);
+    if (fx.applyStatus.id === 'exposed' && opp.traps.length) {
+      emit(s, { type: 'expose', side: oppSide, traps: opp.traps.map((t) => t.name), msg: `對方的蓋牌被翻開：${opp.traps.map((t) => t.name).join('、')}` });
+    }
   }
   if (fx.summon) { p.summons.push({ ...fx.summon }); emit(s, { type: 'summon', side, name: fx.summon.name }); }
   if (fx.field) {
@@ -319,18 +345,90 @@ export function playCard(s, side, uid) {
   }
   if (fx.trap) { p.traps.push(c); emit(s, { type: 'setTrap', side }); }
   checkWin(s);
+}
+
+// ── 質疑：蓋牌宣告 ─────────────────────
+// 可以宣告成己方或共用卡池裡任何一張非陷阱卡；行程點照宣告的那張付。
+export function declarableCards(s, side) {
+  return poolOf(s).filter((c) => (c.side === side || c.side === 'shared') && c.type !== 'trap');
+}
+
+export function canDeclareAny(s, side) {
+  const p = s.players[side];
+  return !s.over && !s.pending && s.current === side && !s.declaredThisTurn
+    && !hasStatus(p, 'exposed') && p.hand.some((c) => c.type !== 'trap');
+}
+
+export function canDeclare(s, side, uid, asId) {
+  if (!canDeclareAny(s, side)) return false;
+  const p = s.players[side];
+  const c = p.hand.find((x) => x.uid === uid);
+  const as = declarableCards(s, side).find((x) => x.id === asId);
+  if (!c || c.type === 'trap' || !as) return false;
+  return cardCost(s, side, as) <= p.ap;
+}
+
+export function declareCard(s, side, uid, asId) {
+  if (!canDeclare(s, side, uid, asId)) return false;
+  const p = s.players[side];
+  const idx = p.hand.findIndex((x) => x.uid === uid);
+  const c = p.hand[idx];
+  const as = CARD_BY_ID[asId];
+  payCost(s, side, as);
+  p.hand.splice(idx, 1);
+  s.declaredThisTurn = true;
+  s.pending = { side, cardId: c.id, asId };
+  emit(s, { type: 'declare', side, asId, name: as.name, text: as.text, msg: `${side === 'blue' ? '藍' : '綠'}方蓋牌宣告「${as.name}」` });
+  return true;
+}
+
+// 對手回應：challenge=true 質疑（下回合行程點 -1）；false 放行
+export function respond(s, side, challenge) {
+  const pd = s.pending;
+  if (!pd || s.over || side === pd.side) return false;
+  const liarSide = pd.side;
+  const liar = s.players[liarSide];
+  const me = s.players[side];
+  const as = CARD_BY_ID[pd.asId];
+  const actual = CARD_BY_ID[pd.cardId];
+  s.pending = null;
+
+  if (!challenge) {
+    emit(s, { type: 'pass', side, name: as.name, msg: `放行，「${as.name}」生效` });
+    resolveEffect(s, liarSide, as);
+    return true;
+  }
+
+  me.apBonus -= 1;
+  const honest = pd.cardId === pd.asId;
+  if (honest) {
+    const n = Math.min(RULES.wrongChallenge, me.supporters);
+    me.supporters -= n;
+    liar.voice = Math.min(100, liar.voice + RULES.honestVoice);
+    emit(s, { type: 'challenge', side, caught: false, n, name: as.name, msg: `質疑失敗！「${as.name}」是真的` });
+    resolveEffect(s, liarSide, as);
+  } else {
+    const penalty = RULES.bluffPenalty * (hasStatus(liar, 'burst') ? 2 : 1);
+    const n = Math.min(penalty, liar.supporters);
+    liar.supporters -= n;
+    liar.voice = Math.max(0, liar.voice - RULES.caughtVoice);
+    me.voice = Math.min(100, me.voice + RULES.catchVoice);
+    emit(s, { type: 'challenge', side, caught: true, n, name: as.name, actual: actual.name,
+      msg: `抓到吹牛！宣告「${as.name}」其實是「${actual.name}」` });
+    checkWin(s);
+  }
   return true;
 }
 
 // ── 聲量爆表：大絕招或爆表狀態 ─────────
 export function availableUlts(s, side) {
   const p = s.players[side];
-  if (s.over || s.current !== side || p.voice < 100 || hasStatus(p, 'gaffe')) return [];
+  if (s.over || s.current !== side || s.pending || p.voice < 100 || hasStatus(p, 'gaffe')) return [];
   return ULTS[side].filter((u) => !p.usedUlts.includes(u.id) && (!u.minRound || s.round >= u.minRound));
 }
 export const canBurst = (s, side) => {
   const p = s.players[side];
-  return !s.over && s.current === side && p.voice >= 100;
+  return !s.over && !s.pending && s.current === side && p.voice >= 100;
 };
 
 export function enterBurst(s, side) {

@@ -5,12 +5,14 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   createGame, playCard, endTurn, useUlt, enterBurst, takeEvents, finishByCount,
+  declareCard, respond, hasStatus, RULES,
 } from '../../site/js/engine.js';
 import { checkName, cleanName } from '../../site/js/names.js';
 
 const MAX_ROOMS = 200;
 const TURN_MS = 60_000;
 const GRACE_MS = 1_000;            // 截止前 1 秒內送出的動作仍算數
+const RESPOND_MS = RULES.respondSeconds * 1000; // 對手決定要不要質疑的時間（出牌方的回合計時暫停）
 const DISCONNECT_MS = 30_000;      // 斷線超過 30 秒判負
 const GAME_MAX_MS = 20 * 60_000;   // 單局最長 20 分鐘
 const WAIT_ROOM_MS = 10 * 60_000;  // 開房後等朋友最多 10 分鐘
@@ -238,7 +240,8 @@ export class Room extends DurableObject {
     const times = [];
     if (r.status === 'waiting') times.push(r.waitDeadline);
     if (r.status === 'playing') {
-      times.push(r.turnDeadline + GRACE_MS, r.endAt);
+      if (r.state?.pending) times.push(r.respondDeadline + GRACE_MS, r.endAt);
+      else times.push(r.turnDeadline + GRACE_MS, r.endAt);
       for (const t of Object.values(r.disconnects)) if (t) times.push(t + DISCONNECT_MS);
     }
     if (r.status === 'over') times.push(r.cleanupAt);
@@ -331,8 +334,9 @@ export class Room extends DurableObject {
     delete s.rngState; delete s.seed; delete s.events; delete s.log; // log 可能含對手棄牌名稱
     const opp = s.players[other(side)];
     opp.hand = opp.hand.map(() => ({ hidden: true }));
-    opp.traps = opp.traps.map(() => ({ hidden: true }));
-    return { ...base, state: s };
+    if (!hasStatus(opp, 'exposed')) opp.traps = opp.traps.map(() => ({ hidden: true }));
+    if (s.pending && s.pending.side !== side) delete s.pending.cardId;
+    return { ...base, state: s, respondDeadline: s.pending ? r.respondDeadline : null };
   }
 
   filterEvents(events, side) {
@@ -369,17 +373,40 @@ export class Room extends DurableObject {
     const r = await this.load();
     if (!r || r.status !== 'playing') return;
     const s = r.state;
-    if (s.current !== side) return ws.send(JSON.stringify({ t: 'error', msg: '還沒輪到你' }));
-    if (Date.now() > r.turnDeadline + GRACE_MS) return; // 已逾時，等鬧鐘自動結束回合
-
+    const now = Date.now();
     const turnBefore = s.turnIndex;
+
+    // 對手回應蓋牌宣告（不是自己的回合也能送）
+    if (m.t === 'respond') {
+      if (!s.pending || s.pending.side === side || now > r.respondDeadline + GRACE_MS) return;
+      respond(s, side, !!m.challenge);
+      this.resumeTurnClock(now);
+      await this.afterChange(turnBefore);
+      return;
+    }
+
+    if (s.current !== side) return ws.send(JSON.stringify({ t: 'error', msg: '還沒輪到你' }));
+    if (s.pending) return ws.send(JSON.stringify({ t: 'error', msg: '等對手決定要不要質疑' }));
+    if (now > r.turnDeadline + GRACE_MS) return; // 已逾時，等鬧鐘自動結束回合
+
     let ok = false;
     if (m.t === 'play') ok = playCard(s, side, Number(m.uid));
-    else if (m.t === 'end') { endTurn(s); ok = true; }
+    else if (m.t === 'declare') {
+      ok = declareCard(s, side, Number(m.uid), String(m.as));
+      if (ok) { r.respondDeadline = now + RESPOND_MS; r.pauseAt = now; }
+    } else if (m.t === 'end') { endTurn(s); ok = true; }
     else if (m.t === 'ult') ok = useUlt(s, side, String(m.id));
     else if (m.t === 'burst') ok = enterBurst(s, side);
     if (!ok) return ws.send(JSON.stringify({ t: 'error', msg: '這個動作現在不能做' }));
     await this.afterChange(turnBefore);
+  }
+
+  // 等待質疑的時間不算在出牌方的 60 秒裡
+  resumeTurnClock(now) {
+    const r = this.r;
+    if (r.pauseAt) r.turnDeadline += now - r.pauseAt;
+    r.pauseAt = 0;
+    r.respondDeadline = 0;
   }
 
   async afterChange(turnBefore) {
@@ -421,6 +448,12 @@ export class Room extends DurableObject {
       if (gone) {
         s.over = true; s.winner = other(gone); s.reason = '對手未連線或斷線超過 30 秒';
         s.events.push({ type: 'gameOver', winner: s.winner });
+      } else if (s.pending && now >= r.respondDeadline + GRACE_MS) {
+        respond(s, other(s.pending.side), false);
+        s.events.push({ type: 'timeout', side: other(s.current), msg: '沒有回應，視同放行' });
+        this.resumeTurnClock(now);
+      } else if (s.pending) {
+        // 還在等回應，什麼都不做
       } else if (now >= r.endAt) {
         finishByCount(s);
         s.reason = `對局超過 20 分鐘，${s.reason}`;

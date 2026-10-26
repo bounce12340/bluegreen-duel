@@ -172,3 +172,17 @@ body.in-battle #footer { display: none; }
 /* 配對倒數圈 */
 .count-ring { --p: 100%; width: 96px; height: 96px; margin: 6px auto 4px; border-radius: 50%; display: grid; place-items: center;
   font-size: 34px; font-weight: 900; background: radial-gradient(closest-side, var(--paper) 78%, transparent 80% 100%), conic-gradient(var(--ink) var(--p), #e3e7ee 0); }
+
+/* 質疑 */
+.btn.danger { background: var(--danger); color: #fff; }
+.btn.bluff { background: #2a2f45; color: #ffe27a; }
+.big-card.facedown { background: repeating-linear-gradient(135deg, #fffdf8 0 12px, #f3efe4 12px 24px); }
+.count-ring.small-ring { width: 70px; height: 70px; font-size: 26px; }
+.decl-list { display: flex; flex-direction: column; gap: 6px; max-height: 46dvh; overflow: auto; margin: 6px 0; }
+.decl-item { position: relative; display: grid; grid-template-columns: 26px 1fr; grid-template-rows: auto auto; column-gap: 8px; text-align: left;
+  border: 2px solid var(--gray); border-radius: 12px; padding: 6px 10px; background: #fff; min-height: 48px; }
+.decl-item.blue { border-color: var(--blue); } .decl-item.green { border-color: var(--green); }
+.decl-item:disabled { opacity: .4; }
+.decl-item .cost { grid-row: span 2; align-self: center; width: 24px; height: 24px; border-radius: 50%; background: var(--gold); border: 2px solid #b67f00; font-weight: 900; font-size: 12px; display: grid; place-items: center; }
+.decl-item b { font-size: 14px; } .decl-item b em { font-style: normal; color: var(--green); font-size: 12px; margin-left: 4px; }
+.decl-item span:last-child { font-size: 12px; opacity: .75; }

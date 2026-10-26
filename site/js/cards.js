@@ -22,6 +22,8 @@ export const CARDS = [
     text: '蓋牌。對方下一次拉票，一半的人走回中間', fx: { trap: 'flip' }, flavor: '說好的呢？' },
   { id: 's_rain', short: '蓋牌：對方晚會中止，或行程點 -1', side: 'shared', type: 'trap', cost: 1, rarity: 'common', name: '下雨了',
     text: '蓋牌。對方下回合開始時：造勢晚會立即結束；沒有晚會則行程點 -1', fx: { trap: 'rain' }, flavor: '雨衣發完了。' },
+  { id: 's_expose', short: '翻開對方陷阱，1 回合不能蓋牌宣告', side: 'shared', type: 'status', cost: 2, rarity: 'rare', name: '被起底',
+    text: '對方「被起底」1 回合：已蓋的陷阱全部翻開，且不能蓋牌宣告', fx: { applyStatus: { id: 'exposed', turns: 1 } }, flavor: '十年前的留言也翻得出來。' },
   { id: 's_gaffe', short: '對方 1 回合不能放絕招', side: 'shared', type: 'status', cost: 2, rarity: 'rare', name: '失言警報',
     text: '對方「失言」1 回合：不能發動絕招', fx: { applyStatus: { id: 'gaffe', turns: 1 } }, flavor: '麥克風沒關。' },
 
@@ -81,6 +83,7 @@ export const STATUS_INFO = {
   question: { name: '被追問', bad: true, icon: '❓' },
   deflect: { name: '頭暈轉圈', bad: true, icon: '💫' },
   gaffe: { name: '失言', bad: true, icon: '🤐' },
+  exposed: { name: '被起底', bad: true, icon: '🔍' },
   sympathy: { name: '同情票', bad: false, icon: '🥺' },
   burst: { name: '聲量爆表', bad: false, icon: '🔥' },
   ultBoost: { name: '拉票加倍', bad: false, icon: '🛡️' },
