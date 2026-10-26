@@ -1,0 +1,25 @@
+# 連線對戰伺服器（只透過 Pages 的 /api 轉進來，不開公開網址）
+name = "bluegreen-duel-server"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+# 保留在 Cloudflare 後台設定的變數（MAINTENANCE、DISABLED_CARDS、TURNSTILE_SITE_KEY），部署時不覆蓋
+keep_vars = true
+
+[vars]
+ALLOWED_HOSTS = "bluegreen-duel.pages.dev"
+
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "Lobby"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Lobby", "Room"]
+
+[observability]
+enabled = true

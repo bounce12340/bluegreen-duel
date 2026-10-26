@@ -7,6 +7,8 @@ import {
 import { aiStep } from './ai.js';
 import { createCrowd } from './crowd.js';
 import { unlock, sfx, isMuted, setMuted } from './sound.js';
+import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
+import { checkName, cleanName, NAME_MAX } from './names.js';
 
 const $ = (sel) => document.querySelector(sel);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,6 +21,12 @@ const RAR = { common: '', rare: '★', epic: '★★' };
 const RAR_NAME = { common: '普通', rare: '稀有', epic: '史詩' };
 
 let game = null, me = 'blue', opp = 'green', busy = false, timerId = null, timeLeft = 0, gen = 0;
+// 連線模式狀態
+let mode = 'local';          // 'local' 對戰電腦｜'online' 連線
+let server = { online: false };
+let sock = null, roomCode = null, deadline = 0, clockOffset = 0, leaving = false, resultShown = false;
+let names = { blue: null, green: null }, reconnectUntil = 0, lobbySock = null;
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const crowd = createCrowd($('#crowd'));
 
 // ── 啟動與關站判斷 ───────────────────────
@@ -35,7 +43,7 @@ function show(id) {
   document.body.classList.toggle('in-battle', id === 'battle');
 }
 
-function init() {
+async function init() {
   for (const a of document.querySelectorAll('.contact-link')) {
     a.href = `mailto:${CONFIG.CONTACT_EMAIL}`;
     a.textContent = CONFIG.CONTACT_EMAIL;
@@ -45,10 +53,16 @@ function init() {
     s.href = CONFIG.SPONSOR_URL;
     s.classList.remove('hidden');
   }
-  const reason = closedReason();
+  server = await fetchStatus();
+  const reason = server.maintenance ? server.msg : closedReason();
   if (reason) { $('#closed-msg').textContent = reason; show('closed'); return; }
   show('title');
-  for (const b of document.querySelectorAll('.pick-btn')) b.addEventListener('click', () => startGame(b.dataset.side));
+  for (const b of document.querySelectorAll('.pick-btn')) b.addEventListener('click', () => openModeMenu(b.dataset.side));
+  // 重新整理頁面時，若這個分頁還有進行中的連線對局就接回去
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('bg_room') || 'null');
+    if (saved && server.online && Date.now() - saved.at < 25 * 60_000) connectRoom(saved.code, saved.name);
+  } catch { /* 忽略 */ }
   for (const b of document.querySelectorAll('[data-open]')) b.addEventListener('click', () => (b.dataset.open === 'rules' ? openRules() : openPrivacy()));
   $('#mute').addEventListener('click', toggleMute);
   $('#menu').addEventListener('click', openMenu);
@@ -59,14 +73,10 @@ function init() {
 }
 
 // ── 開局 ─────────────────────────────────
-function startGame(side) {
-  const reason = closedReason();
-  if (reason) { $('#closed-msg').textContent = reason; show('closed'); return; }
-  unlock();
-  gen += 1; // 讓上一局還在跑的電腦回合自動中止
+function setupBattle(side) {
   me = side; opp = other(side);
-  game = createGame({ seed: Math.floor(Math.random() * 2 ** 31), disabledCards: CONFIG.disabledCards });
   busy = false;
+  resultShown = false;
   closeModal();
   show('battle');
   $('#me-mascot').src = `assets/${me}_back.webp`;
@@ -76,15 +86,31 @@ function startGame(side) {
   $('#me-plat').className = `platform me-plat ${me}`;
   crowd.reset({ me, opp });
   crowd.start();
-  takeEvents(game); // 開局抽牌的事件不用播
-  render();
-  toast(game.first === me ? '你是先手！' : '對手先手，你多拿 1 張牌和 30 聲量', me, true);
+}
+
+function maybeShowHelp() {
   let seen = false;
   try { seen = localStorage.getItem('bg_seen_help') === '1'; } catch { /* 忽略 */ }
   if (!seen) {
     openRules(true);
     try { localStorage.setItem('bg_seen_help', '1'); } catch { /* 忽略 */ }
   }
+}
+
+function startGame(side) {
+  const reason = closedReason();
+  if (reason) { $('#closed-msg').textContent = reason; show('closed'); return; }
+  unlock();
+  gen += 1; // 讓上一局還在跑的電腦回合自動中止
+  mode = 'local';
+  names = { blue: null, green: null };
+  const disabled = [...CONFIG.disabledCards, ...(server.disabledCards || [])];
+  game = createGame({ seed: Math.floor(Math.random() * 2 ** 31), disabledCards: disabled });
+  setupBattle(side);
+  takeEvents(game); // 開局抽牌的事件不用播
+  render();
+  toast(game.first === me ? '你是先手！' : '對手先手，你多拿 1 張牌和 30 聲量', me, true);
+  maybeShowHelp();
   nextPhase();
 }
 
@@ -94,7 +120,8 @@ function nextPhase() {
   else runAI();
 }
 
-const isMyTurn = () => game && !game.over && !busy && game.current === me;
+const isMyTurn = () => game && !game.over && !busy && game.current === me
+  && (mode === 'local' || (sock && sock.readyState === 1));
 
 // ── 畫面 ─────────────────────────────────
 function infoHTML(side, mine) {
@@ -108,7 +135,8 @@ function infoHTML(side, mine) {
   if (p.traps.length) chips.push(`<span class="chip">🪤蓋牌×${p.traps.length}</span>`);
   if (!mine) chips.push(`<span class="chip">🂠手牌×${p.hand.length}</span>`);
   return `
-    <div class="row"><span class="who">${SIDE_NAME[side]}<span class="small">（${SIDE_FULL[side]}）</span>${mine ? '' : ''}</span>
+    ${names[side] ? `<div class="small nick">👤 ${esc(names[side])}${mine ? '（你）' : ''}</div>` : ''}
+    <div class="row"><span class="who">${SIDE_NAME[side]}<span class="small">（${SIDE_FULL[side]}）</span></span>
       <span class="count" style="color:var(--${side})">${p.supporters}</span></div>
     <div class="bar sup" style="color:var(--${side})"><i style="width:${pct}%"></i></div>
     <div class="row small"><span>支持者（${RULES.winAt} 過半）</span><span>聲量 ${p.voice}</span></div>
@@ -135,7 +163,7 @@ function render() {
   const apMax = Math.max(mp.ap, 0);
   $('#ap').innerHTML = myTurn
     ? `行程點 ${'<i></i>'.repeat(Math.min(apMax, 12))} ${mp.ap}`
-    : `<span class="small">${busy ? '對手行動中…' : ''}</span>`;
+    : `<span class="small">${game.over ? '' : mode === 'online' ? '對手思考中…' : busy ? '對手行動中…' : ''}</span>`;
 
   // 手牌
   const hand = $('#hand');
@@ -235,6 +263,7 @@ function playEvents() {
       case 'summon': toast(`${who}召喚「${ev.name}」`, ev.side); break;
       case 'setTrap': if (ev.side === opp) toast('對手蓋了一張牌…', opp); break;
       case 'discard': if (ev.side === me) toast(ev.msg); break;
+      case 'timeout': toast(`${who}${ev.msg}`, ev.side); break;
       case 'gameOver': setTimeout(showResult, 900); break;
       default: break;
     }
@@ -265,7 +294,9 @@ function updateTimer() {
 }
 
 function doPlay(uid) {
-  if (!isMyTurn() || !playCard(game, me, uid)) return;
+  if (!isMyTurn()) return;
+  if (mode === 'online') { send({ t: 'play', uid }); closeModal(); return; }
+  if (!playCard(game, me, uid)) return;
   closeModal();
   playEvents();
   render();
@@ -273,6 +304,7 @@ function doPlay(uid) {
 
 function endMyTurn() {
   if (!game || game.over || game.current !== me) return;
+  if (mode === 'online') { send({ t: 'end' }); return; }
   clearInterval(timerId);
   endTurn(game);
   playEvents();
@@ -358,6 +390,11 @@ function openUlt() {
     <div class="btns"><button class="btn" id="m-cancel">先不要</button></div>`);
   for (const b of document.querySelectorAll('[data-ult]')) {
     b.onclick = () => {
+      if (mode === 'online') {
+        send(b.dataset.ult === 'burst' ? { t: 'burst' } : { t: 'ult', id: b.dataset.ult });
+        closeModal();
+        return;
+      }
       if (b.dataset.ult === 'burst') enterBurst(game, me);
       else useUlt(game, me, b.dataset.ult);
       closeModal();
@@ -385,10 +422,10 @@ function openRules(first = false) {
 
 function openPrivacy() {
   openModal(`<h2>隱私聲明</h2>
-    <p>本遊戲目前為單機版：不需註冊，也不蒐集姓名、電子郵件或其他聯絡資料。</p>
-    <p>你的瀏覽器只會在你的裝置上記住兩件事：是否靜音、是否看過教學。這些資料不會傳回我們。</p>
-    <p>網站由 Cloudflare 託管。Cloudflare 會為了安全與維運記錄連線資訊（例如 IP 位址），依其隱私權政策處理。本站沒有使用廣告或追蹤工具。</p>
-    <p>日後若加入連線對戰或防機器人驗證，會先更新本聲明；屆時記錄的連線資訊將於 30 天後刪除。</p>
+    <p>不需註冊，不蒐集姓名、電子郵件或其他聯絡資料。</p>
+    <p><b>連線對戰</b>時，伺服器會暫存你輸入的暱稱、隨機產生的玩家識別碼與對局內容，只用來進行這一局；對局結束約 1 分鐘後刪除。暱稱會顯示給對手。</p>
+    <p>你的瀏覽器會在你的裝置上記住：是否靜音、是否看過教學、上次用的暱稱，以及進行中對局的識別碼（關閉分頁即清除）。</p>
+    <p>網站與連線伺服器由 Cloudflare 託管。Cloudflare 會為了安全與維運記錄連線資訊（例如 IP 位址），依其隱私權政策處理；若啟用真人驗證（Cloudflare Turnstile），也適用其隱私權政策。本站自行記錄的連線資訊保存不超過 30 天。本站沒有使用廣告或追蹤工具。</p>
     <p>問題或要求：<a href="mailto:${CONFIG.CONTACT_EMAIL}">${CONFIG.CONTACT_EMAIL}</a></p>
     <p class="small">本作為政治諷刺娛樂，非任何候選人、政黨或競選團隊製作，內容不代表當事人言行。角色為原創 Q 版人偶，美術由 AI 生成。</p>
     <div class="btns"><button class="btn primary" id="m-ok">關閉</button></div>`, { pause: true });
@@ -400,7 +437,7 @@ function openMenu() {
     <div class="btns" style="flex-direction:column">
       <button class="btn" id="m-rules">怎麼玩</button>
       <button class="btn" id="m-priv">隱私聲明</button>
-      <button class="btn" id="m-home">回首頁（放棄這局）</button>
+      <button class="btn" id="m-home">${mode === 'online' && game && !game.over ? '離開（30 秒後判負）' : '回首頁（放棄這局）'}</button>
       <button class="btn primary" id="m-ok">繼續</button>
     </div>`, { pause: true });
   $('#m-rules').onclick = () => openRules();
@@ -411,6 +448,9 @@ function openMenu() {
 
 function goHome() {
   gen += 1;
+  leaveOnline();
+  mode = 'local';
+  names = { blue: null, green: null };
   clearInterval(timerId);
   busy = false;
   game = null;
@@ -420,7 +460,10 @@ function goHome() {
 }
 
 function showResult() {
+  if (resultShown || !game) return;
+  resultShown = true;
   clearInterval(timerId);
+  try { sessionStorage.removeItem('bg_room'); } catch { /* 忽略 */ }
   const w = game.winner;
   const b = game.players.blue.supporters, g = game.players.green.supporters;
   const won = w === me;
@@ -436,8 +479,15 @@ function showResult() {
     <div class="btns"><button class="btn ${me}" id="m-again">再玩一次</button><button class="btn ${opp}" id="m-swap">換陣營</button></div>
     <div class="btns"><button class="btn" id="m-share">分享</button><button class="btn" id="m-home">回首頁</button></div>
     <p class="small center">遊戲結果僅供娛樂，與實際選情無關。</p>`, { locked: true });
-  $('#m-again').onclick = () => startGame(me);
-  $('#m-swap').onclick = () => startGame(opp);
+  if (mode === 'online') {
+    $('#m-again').textContent = '再配對一次';
+    $('#m-swap').textContent = '對戰電腦';
+    $('#m-again').onclick = () => { const s = me; leaveOnline(); randomMatch(s); };
+    $('#m-swap').onclick = () => { const s = me; leaveOnline(); startGame(s); };
+  } else {
+    $('#m-again').onclick = () => startGame(me);
+    $('#m-swap').onclick = () => startGame(opp);
+  }
   $('#m-home').onclick = goHome;
   $('#m-share').onclick = async () => {
     const text = `我在《藍綠對決》用${SIDE_NAME[me]}打到 藍 ${b} : ${g} 綠，${title} 來挑戰：${location.href}`;
@@ -450,5 +500,215 @@ function showResult() {
 
 function toggleMute() { setMuted(!isMuted()); updateMuteIcon(); }
 function updateMuteIcon() { $('#mute').textContent = isMuted() ? '🔇' : '🔊'; }
+
+// ── 連線對戰 ─────────────────────────────
+let pingTimer = null, battleRoom = null, lastTurnKey = '';
+
+function notice(msg) {
+  openModal(`<h2>${esc(msg)}</h2><div class="btns"><button class="btn primary" id="m-ok">知道了</button></div>`);
+  $('#m-ok').onclick = closeModal;
+}
+function savedName() { try { return localStorage.getItem('bg_name') || ''; } catch { return ''; } }
+
+function openModeMenu(side) {
+  const online = server.online;
+  openModal(`<h2>${SIDE_NAME[side]}・選擇模式</h2>
+    <div class="btns"><button class="btn ${side}" id="m-ai">🤖 對戰電腦</button></div>
+    ${online ? `
+    <hr>
+    <label class="small" for="m-name">連線暱稱（最多 ${NAME_MAX} 字，會顯示給對手）</label>
+    <input id="m-name" class="input" maxlength="${NAME_MAX * 2}" value="${esc(savedName())}" placeholder="例如：路過的市民" autocomplete="nickname">
+    <p class="small err" id="m-err"></p>
+    <div class="btns col">
+      <button class="btn primary" id="m-rand">⚡ 線上隨機配對</button>
+      <button class="btn" id="m-host">🏠 開房間給朋友</button>
+    </div>
+    <div class="row-join">
+      <input id="m-code" class="input" maxlength="5" placeholder="朋友的 5 碼房號" autocapitalize="characters" autocomplete="off">
+      <button class="btn" id="m-join">加入</button>
+    </div>
+    <p class="small">加入朋友的房間時，你會拿到房主沒選的那一邊。</p>`
+    : '<p class="small center">連線對戰暫時無法使用，先跟電腦玩吧！</p>'}
+    <div class="btns"><button class="btn" id="m-cancel">返回</button></div>`);
+  $('#m-ai').onclick = () => startGame(side);
+  $('#m-cancel').onclick = closeModal;
+  if (!online) return;
+  const getName = () => {
+    const n = cleanName($('#m-name').value);
+    const e = checkName(n);
+    if (e) { $('#m-err').textContent = e; return null; }
+    try { localStorage.setItem('bg_name', n); } catch { /* 忽略 */ }
+    return n;
+  };
+  $('#m-rand').onclick = () => { const n = getName(); if (n) randomMatch(side, n); };
+  $('#m-host').onclick = () => { const n = getName(); if (n) hostRoom(side, n); };
+  $('#m-join').onclick = () => {
+    const n = getName();
+    if (!n) return;
+    const code = $('#m-code').value.trim().toUpperCase();
+    if (!/^[A-Z0-9]{5}$/.test(code)) { $('#m-err').textContent = '房號是 5 碼英文或數字'; return; }
+    unlock();
+    connectRoom(code, n);
+  };
+}
+
+// 有設定 Turnstile 才會跳出真人驗證
+async function verifyHuman() {
+  if (!server.turnstileSiteKey) return null;
+  openModal(`<h2>真人驗證</h2><p class="small">確認你不是機器人，通常點一下就好。</p><div id="ts-box"></div>
+    <div class="btns"><button class="btn" id="m-cancel">取消</button></div>`, { locked: true });
+  let cancelled = false;
+  $('#m-cancel').onclick = () => { cancelled = true; closeModal(); };
+  const token = await getTurnstileToken(server.turnstileSiteKey, $('#ts-box'));
+  if (cancelled) throw new Error('cancelled');
+  return token;
+}
+
+async function randomMatch(side, name = savedName()) {
+  if (checkName(name)) { openModeMenu(side); return; }
+  unlock();
+  let token = null;
+  try { token = await verifyHuman(); } catch { notice('真人驗證沒有完成，請再試一次'); return; }
+  openModal(`<h2>配對中…</h2><p id="m-wait" class="center">正在找對手，通常幾秒鐘</p>
+    <p class="small center">會優先配到另一個陣營的玩家；等太久會改成不分陣營配對。</p>
+    <div class="btns"><button class="btn" id="m-cancel">取消</button></div>`, { locked: true });
+  const ws = new WebSocket(wsUrl('/lobby'));
+  lobbySock = ws;
+  $('#m-cancel').onclick = () => { lobbySock = null; ws.close(); closeModal(); };
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', pid: getPid(), name, side, turnstile: token }));
+  ws.onmessage = (e) => {
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.t === 'queue' && $('#m-wait')) $('#m-wait').textContent = m.msg;
+    else if (m.t === 'error') { lobbySock = null; ws.close(); notice(m.msg); }
+    else if (m.t === 'matched') { lobbySock = null; connectRoom(m.code, name); }
+  };
+  ws.onclose = () => { if (lobbySock === ws) { lobbySock = null; notice('配對連線中斷，請再試一次'); } };
+}
+
+async function hostRoom(side, name) {
+  unlock();
+  let token = null;
+  try { token = await verifyHuman(); } catch { notice('真人驗證沒有完成，請再試一次'); return; }
+  try {
+    const r = await fetch('/api/create', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pid: getPid(), name, side, turnstile: token }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { notice(d.error || d.msg || '開房失敗，請稍後再試'); return; }
+    connectRoom(d.code, name);
+  } catch { notice('開房失敗，請檢查網路'); }
+}
+
+function showWaitingRoom(code) {
+  if ($('#m-roomcode')) return;
+  openModal(`<h2>房間開好了</h2><p class="center">把房號傳給朋友：</p>
+    <div class="code" id="m-roomcode">${esc(code)}</div>
+    <p class="small center">朋友在首頁點任一角色 →「加入」輸入房號。10 分鐘內沒人加入會自動關閉。</p>
+    <div class="btns"><button class="btn primary" id="m-share">分享房號</button><button class="btn" id="m-cancel">取消</button></div>`, { locked: true });
+  $('#m-share').onclick = async () => {
+    const text = `來《藍綠對決》跟我對戰！房號 ${code}：${location.origin}`;
+    try {
+      if (navigator.share) await navigator.share({ title: '藍綠對決', text });
+      else { await navigator.clipboard.writeText(text); $('#m-share').textContent = '已複製'; }
+    } catch { /* 使用者取消 */ }
+  };
+  $('#m-cancel').onclick = () => { leaveOnline(); closeModal(); };
+}
+
+function send(msg) {
+  if (sock && sock.readyState === 1) sock.send(JSON.stringify(msg));
+  else toast('連線中，請稍候再試');
+}
+
+function connectRoom(code, name) {
+  gen += 1;
+  mode = 'online';
+  roomCode = code;
+  leaving = false;
+  try { sessionStorage.setItem('bg_room', JSON.stringify({ code, name, at: Date.now() })); } catch { /* 忽略 */ }
+  const ws = new WebSocket(wsUrl(`/room/${code}?pid=${encodeURIComponent(getPid())}&name=${encodeURIComponent(name || '')}`));
+  sock = ws;
+  ws.onmessage = (e) => { if (sock === ws) onRoomMessage(e.data); };
+  ws.onopen = () => { reconnectUntil = 0; if (game) render(); };
+  ws.onclose = (e) => {
+    if (sock !== ws || leaving || e.code === 4003 || e.code === 4001) return;
+    if (game && game.over) return;
+    if (!reconnectUntil) reconnectUntil = Date.now() + 28_000;
+    if (Date.now() < reconnectUntil) {
+      if (game) toast('連線中斷，重新連線中…');
+      setTimeout(() => { if (sock === ws && !leaving) connectRoom(code, name); }, 2000);
+    } else {
+      goHome();
+      notice('連線中斷太久，這局已結束');
+    }
+  };
+  clearInterval(pingTimer);
+  // 伺服器會自動回 pong，不會喚醒房間，也不會產生費用
+  pingTimer = setInterval(() => { if (sock && sock.readyState === 1) sock.send('ping'); }, 25_000);
+}
+
+function leaveOnline() {
+  leaving = true;
+  clearInterval(pingTimer);
+  if (sock) { try { sock.close(1000, 'leave'); } catch { /* 忽略 */ } }
+  if (lobbySock) { try { lobbySock.close(); } catch { /* 忽略 */ } }
+  sock = null; lobbySock = null; roomCode = null; battleRoom = null; reconnectUntil = 0;
+  try { sessionStorage.removeItem('bg_room'); } catch { /* 忽略 */ }
+}
+
+function onRoomMessage(data) {
+  if (data === 'pong') return;
+  let m; try { m = JSON.parse(data); } catch { return; }
+  if (m.t === 'error') {
+    if (m.fatal) { goHome(); notice(m.msg); } else if (game) toast(m.msg);
+    return;
+  }
+  if (m.t === 'opp') {
+    if (m.status === 'left') toast('對手斷線了，30 秒內沒回來你就獲勝', me, true);
+    else toast('對手回來了', me);
+    return;
+  }
+  if (m.t !== 'view') return;
+  const v = m.view;
+  clockOffset = v.serverNow - Date.now();
+  names = v.names || names;
+  if (v.status === 'waiting' || !v.state) { showWaitingRoom(v.code); return; }
+
+  if (battleRoom !== v.code) {
+    battleRoom = v.code;
+    setupBattle(v.you);
+    game = v.state;
+    game.events = [];
+    render();
+    toast(game.first === me ? '你是先手！' : '對手先手，你多拿 1 張牌和 30 聲量', me, true);
+    maybeShowHelp();
+  }
+  game = v.state;
+  game.events = m.events || [];
+  deadline = v.deadline;
+  playEvents();
+  render();
+  const key = `${game.round}-${game.current}`;
+  if (key !== lastTurnKey) {
+    lastTurnKey = key;
+    if (!game.over && game.current === me) toast(`你的回合（第 ${game.round} 回合）`, me);
+  }
+  startOnlineTimer();
+  if (game.over && !resultShown) setTimeout(showResult, 1200);
+}
+
+function startOnlineTimer() {
+  clearInterval(timerId);
+  const tick = () => {
+    if (!game || game.over || mode !== 'online') { clearInterval(timerId); return; }
+    const prev = timeLeft;
+    timeLeft = Math.max(0, Math.ceil((deadline - (Date.now() + clockOffset)) / 1000));
+    if (game.current === me && timeLeft <= 10 && timeLeft > 0 && timeLeft !== prev) sfx.tick();
+    updateTimer();
+  };
+  tick();
+  timerId = setInterval(tick, 250);
+}
 
 init();

@@ -241,7 +241,7 @@ function checkWin(s) {
   return false;
 }
 
-function finishByCount(s) {
+export function finishByCount(s) {
   const b = s.players.blue, g = s.players.green;
   let w;
   if (b.supporters !== g.supporters) { w = b.supporters > g.supporters ? 'blue' : 'green'; s.reason = '第 12 回合結束，支持者較多'; }

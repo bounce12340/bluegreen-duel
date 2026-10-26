@@ -1,0 +1,8 @@
+# Cloudflare Pages 設定：網站在 site/，/api/* 轉給連線伺服器
+name = "bluegreen-duel"
+pages_build_output_dir = "site"
+compatibility_date = "2026-09-01"
+
+[[services]]
+binding = "GAME"
+service = "bluegreen-duel-server"
