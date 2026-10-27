@@ -3,6 +3,7 @@
 // 卡牌、大絕招、狀態的英文在這裡集中管理，載入時直接換掉卡牌物件上的文字（遊戲規則與平衡完全不變）。
 import { CARDS, ULTS, STATUS_INFO, SIDE_NAME, SIDE_FULL, POLICIES, VENUES, COMBO_INFO } from './cards.js';
 import { NEWS_CARDS } from './news_cards.js';
+import { ACHIEVEMENTS } from './progress.js';
 
 function detect() {
   try {
@@ -92,6 +93,17 @@ for (const list of Object.values(ULTS)) for (const u of list) if (ULT_EN[u.id]) 
 Object.assign(NAME_ZH_TO_EN, SUMMON_EN);
 export const nameEN = (zh) => (EN ? NAME_ZH_TO_EN[zh] || zh : zh);
 
+export const ACH_EN = {
+  first_win: ['First Victory', 'Win your first game'], win_both: ['Both Sides Now', 'Win once as blue and once as green'],
+  catch_10: ['Bluff Buster', 'Catch 10 bluffs in total'], bluff_5: ['Poker Face', 'Get 5 bluffs past your opponent'],
+  combo_1: ['First Combo', 'Pull off a combo'], combo_10: ['Combo Master', 'Pull off 10 combos in total'],
+  traps_3: ['Trap Expert', 'Trigger 3 of your traps in one game'], big_win: ['Landslide', 'Win by 25 or more'],
+  comeback: ['Comeback Kid', 'Win after trailing by 15 or more'], ult_all: ['Special Move Collector', 'Use all six special moves'],
+  online_win: ['Online Winner', 'Win an online game'], daily_1: ['Daily Winner', 'Win a daily challenge'],
+  daily_3: ['Three in a Row', 'Win the daily challenge 3 days running'], all_policies: ['Strategist', 'Use all 8 campaign strategies'],
+  all_venues: ['Seen It All', 'Meet all 7 venue events'], gallery_all: ['Full Collection', 'Draw every card at least once'],
+};
+
 export const POLICY_EN = {
   p_grassroots: { name: 'Grassroots Network', text: 'Your summoned teams stay 1 extra turn' },
   p_online: { name: 'Online First', text: 'Your hype grows 5 more each turn' },
@@ -114,6 +126,7 @@ export const VENUE_EN = {
 const COMBO_EN = { net: 'Online series', ground: 'Grassroots series', staff: 'Staff series' };
 
 if (EN) {
+  for (const a of ACHIEVEMENTS) if (ACH_EN[a.id]) [a.name, a.text] = ACH_EN[a.id];
   for (const x of POLICIES) Object.assign(x, POLICY_EN[x.id] || {});
   for (const x of VENUES) Object.assign(x, VENUE_EN[x.id] || {});
   for (const [k, v] of Object.entries(COMBO_EN)) if (COMBO_INFO[k]) COMBO_INFO[k].name = v;
@@ -190,6 +203,28 @@ const DICT = {
   '你的策略：{a}｜對手：{b}': 'Your strategy: {a} | Opponent: {b}', '場地事件「{name}」結束': 'Venue event "{name}" is over',
   '等對手選策略…': 'Waiting for your opponent to choose…', '雙方都選好就開始。': 'The game starts once you\'ve both chosen.',
   '{icon} {name}：{text}': '{icon} {name}: {text}',
+  '🎓 新手教學': '🎓 Tutorial', '📅 每日挑戰': '📅 Daily challenge', '🏆 成就與圖鑑': '🏆 Achievements & cards',
+  成就解鎖: 'Achievement unlocked', '每日挑戰 {d}：大家今天打同一副牌': 'Daily challenge {d}: everyone plays the same deal today',
+  '每日挑戰 {d}': 'Daily challenge {d}', 今天已過關: 'Cleared today', 今天還沒過關: 'Not cleared yet today', '連勝 {n} 天': '{n}-day streak',
+  '今天（{d}）大家打同一副牌：用{side}對戰全力電腦。可以重來，記錄最佳結果。': 'Today ({d}) everyone plays the same deal: {side} against the computer at full strength. Retry as often as you like; your best result counts.',
+  '最佳差距 {n}': 'Best margin {n}', '已挑戰 {n} 次': '{n} tries', 今天還沒挑戰: 'Not played yet today', 開始挑戰: 'Start', 一般對戰: 'Regular game',
+  成就: 'Achievements', 卡牌: 'Cards', 策略: 'Strategies', 場地事件: 'Venue events',
+  '對戰 {g} 場・勝 {w} 場・抓到吹牛 {c} 次・連擊 {k} 次': '{g} games · {w} wins · {c} bluffs caught · {k} combos',
+  '已收集 {n} / {m} 張（抽到過就算）': 'Collected {n} / {m} (any card you have drawn)', 還沒遇過: 'Not met yet',
+  '紀錄只存在這台裝置的瀏覽器。': 'Your records are stored only in this browser on this device.',
+  '跟著提示打一局：出牌、連擊、質疑、蓋牌吹牛，大約 3 分鐘。選一邊開始：': 'Play one guided game: playing cards, combos, challenging and bluffing. About 3 minutes. Pick a side:',
+  '教學：每局開始先選一張競選策略，選哪張都可以。': 'Tutorial: every game starts with picking a campaign strategy. Any of them is fine.',
+  '把「{a}」往上拖到場上放開（或點一下再按「打出」）。一回合只能出一張主牌，出完就換對手。': 'Drag "{a}" up onto the field and let go (or tap it and press "Play"). You play one main card per turn, then it\'s your opponent\'s turn.',
+  '很好！現在換對手出牌，看看他做什麼。': 'Nice! Now it\'s your opponent\'s turn. Watch what they do.',
+  '魔法卡不佔回合。卡牌右上角的 📱 是系列：先打「{b}」，再打同系列的「{c}」，就是連擊！': 'Magic cards don\'t use up your turn. The 📱 at the top right is the series: play "{b}", then "{c}" from the same series for a combo!',
+  '連擊成功！多拉 2 人、聲量 +10。接下來注意對手…': 'Combo! +2 voters and +10 hype. Now watch your opponent…',
+  '對手把一張牌蓋著宣告了！覺得他在吹牛就按「質疑」，猜錯自己會扣人。': 'Your opponent played a card face down! If you think it\'s a bluff, press "Challenge". Guess wrong and you lose supporters.',
+  '換你吹牛看看：點一張手牌 →「蓋牌宣告」→ 選一張比較強的牌。對手可能會質疑你喔。': 'Your turn to bluff: tap a card → "Play face down…" → pick a stronger card. Your opponent may challenge you.',
+  '教學完成！之後電腦會手下留情，把這局打完吧。想再看規則可以按右上角選單。': 'Tutorial complete! The computer will go easy for the rest of this game. The rules are in the menu at the top right.',
+  '展示中・按任意鍵或點一下開始玩': 'Demo · press any key or tap to play',
+  '📸 戰績圖卡': '📸 Result card', 藍: 'Blue', 綠: 'Green', 我的陣營與策略: 'My side and strategy', 本局最佳一手: 'Best play this game',
+  '{name}（+{n} 人）': '{name} (+{n} voters)', '政治諷刺娛樂，非任何候選人、政黨或競選團隊製作；結果與實際選情無關': 'Political satire, not affiliated with any candidate, party or campaign. Not real election results.',
+  圖卡已下載: 'Image downloaded', 圖卡產生失敗: 'Couldn\'t create the image',
   '跳過，行程點 {n} 點存著': 'Skipped. {n} action points saved',
   '時間到，自動跳過': 'Time\'s up. Turn skipped',
   '對手跳過，存了 {n} 點行程點': 'Opponent skipped and saved {n} action points',
@@ -364,7 +399,7 @@ export function privacyHTML_EN(C) {
     <p><b>Nickname check</b>: your nickname is sent to TypeSafe's Jev model to check for impersonating real people or officials, insults, slurs or calls to vote. The result (only the nickname and pass/fail) is kept for 7 days so it isn't checked twice. Please don't put personal details in your nickname.</p>
     <p><b>Problem reports</b>: what you write is sent to TypeSafe's Jev model to be sorted automatically. If you tick the box, this game's numbers and your browser type (e.g. Safari, iOS, opened inside LINE) are attached; no IP address or identifying data. Reports are kept for up to 7 days and deleted after the daily summary goes to the author.</p>
     <p><b>Contact email</b>: the subject and body of emails to our contact address are sent to TypeSafe's Jev model for sorting (e.g. takedown requests, bug reports). The sender's address is not sent. Emails that need attention are forwarded to the author.</p>
-    <p>Your browser remembers on your device: mute, whether you've seen the tutorial, your last nickname, your current game ID (cleared when you close the tab), your language, and <b>your play-style stats against the computer</b> (how often you were caught bluffing and how often you challenge), so the computer can learn to read you. These stats stay on your device.</p>
+    <p>Your browser remembers on your device: mute, whether you've seen the tutorial, your last nickname, your current game ID (cleared when you close the tab), your language, and <b>your play-style stats against the computer</b> (how often you were caught bluffing and how often you challenge), so the computer can learn to read you, plus your achievements, game stats, card collection and daily challenge records. All of this stays on your device and is never uploaded.</p>
     <p><b>Against the computer</b>, when you play face down the server may send <b>game numbers</b> (round, both sides' supporters, the declared card, the stats above) to TypeSafe's Jev model to estimate whether you're bluffing. No nickname, IP or personal data is sent.</p>
     <p><b>Computer strength</b>: after each game against the computer, the server sends <b>your last few games' numbers</b> (wins and losses, supporter margins, rounds, skips and timeouts, game length) to TypeSafe's Jev model to decide whether the computer should go easier. No nickname, IP or personal data; your results stay on your device.</p>
     <p><b>Bot protection</b>: in online games the server records how long each of your actions takes (in milliseconds). After the game it sends <b>statistics</b> (average, fastest, variation, games in the last hour) to TypeSafe's Jev model to check whether the play looks scripted. If it looks suspicious, you'll be asked to complete a human check or online play pauses for a while. No nickname, IP or player ID is sent. IP addresses are held only as a hash that changes daily, in server memory, to count recent games; flags are tied only to the random player ID and last at most 24 hours.</p>

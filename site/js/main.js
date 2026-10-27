@@ -9,6 +9,9 @@ import {
 import { aiStep, respondDecision, newProfile, observeEvents, EASE_NAMES, EASE_MAX, aiChoosePolicy } from './ai.js';
 import { createCrowd } from './crowd.js';
 import { initFx, syncBoard, playFx, victory, clearVictory } from './fx.js';
+import * as PG from './progress.js';
+import { drawShareCard, shareImage } from './share.js';
+import { CARDS, POLICIES, VENUES } from './cards.js';
 import { unlock, sfx, isMuted, setMuted, setRemoteVolume } from './sound.js';
 import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
 import { checkName, cleanName, NAME_MAX } from './names.js';
@@ -27,6 +30,10 @@ const RAR_NAME = { common: '普通', rare: '稀有', epic: '史詩' };
 
 let game = null, me = 'blue', opp = 'green', busy = false, timerId = null, timeLeft = 0, gen = 0;
 let seenUids = new Set(); // 已經在手牌出現過的牌：新抽到的牌播翻面動畫
+// 這局的種類：'normal' 一般｜'daily' 每日挑戰｜'tutorial' 互動教學｜'demo' 電視台展示（電腦對電腦）
+let gameKind = 'normal', dailyDate = null, tut = null;
+let bestPlay = null, curPlay = null; // 本局我方最佳一手（拉到最多人的那張），分享圖卡用
+const curEase = () => (gameKind === 'daily' ? 0 : gameKind === 'tutorial' ? EASE_MAX : ease);
 // 出牌演出：卡牌先放大展示，結束後才更新比分與群眾
 let fxChain = Promise.resolve(), holdBoard = false, animating = 0, castSkip = null;
 // 連線時伺服器送來的卡牌文字是中文；顯示一律以本機卡牌資料為準（英文版載入時已換成英文）
@@ -97,7 +104,7 @@ async function init() {
     if (saved && server.online && Date.now() - saved.at < 25 * 60_000) connectRoom(saved.code, saved.name);
   } catch { /* 忽略 */ }
   for (const b of document.querySelectorAll('[data-open]')) {
-    b.addEventListener('click', () => ({ rules: () => openRules(), privacy: openPrivacy, report: openReport }[b.dataset.open] || openPrivacy)());
+    b.addEventListener('click', () => ({ rules: () => openRules(), privacy: openPrivacy, report: openReport, daily: openDaily, album: openAlbum, tutorial: openTutorial }[b.dataset.open] || openPrivacy)());
   }
   $('#mute').addEventListener('click', toggleMute);
   $('#menu').addEventListener('click', openMenu);
@@ -111,6 +118,8 @@ async function init() {
   });
   updateMuteIcon();
   initFx();
+  if (!PG.getStats().games) { const tl = $('[data-open="tutorial"]'); if (tl) tl.classList.add('hot'); }
+  setupAttract();
   setupEncoreRemote();
 }
 
@@ -144,6 +153,8 @@ function setupBattle(side) {
   busy = false;
   seenUids = new Set();
   clearVictory();
+  hideCoach();
+  const db = $('#demo-banner'); if (db) db.classList.add('hidden');
   resultShown = false;
   closeModal();
   show('battle');
@@ -168,17 +179,25 @@ function maybeShowHelp(then) {
   return false;
 }
 
-function startGame(side) {
+function startGame(side, kind = 'normal') {
   const reason = closedReason();
   if (reason) { $('#closed-msg').textContent = tr(reason); show('closed'); return; }
   unlock();
+  stopAttract();
   gen += 1; // 讓上一局還在跑的電腦回合自動中止
   mode = 'local';
+  gameKind = kind;
   names = { blue: null, green: null };
   const disabled = [...CONFIG.disabledCards, ...(server.disabledCards || [])];
-  game = createGame({ seed: Math.floor(Math.random() * 2 ** 31), disabledCards: disabled, today: taipeiToday() });
+  dailyDate = kind === 'daily' ? taipeiToday() : null;
+  if (kind === 'daily') side = PG.dailySide(dailyDate);
+  const seed = kind === 'daily' ? PG.dailySeed(dailyDate) : Math.floor(Math.random() * 2 ** 31);
+  game = createGame({ seed, disabledCards: disabled, today: taipeiToday(), firstSide: kind === 'tutorial' ? side : undefined });
   gameStats = { skips: 0, timeouts: 0, startedAt: Date.now() };
   setupBattle(side);
+  bestPlay = null; curPlay = null;
+  PG.startGame({ side, mode: 'local', daily: kind === 'daily', date: dailyDate });
+  if (kind === 'tutorial') setupTutorial();
   aiChoosePolicy(game, opp);
   takeEvents(game); // 開局抽牌的事件不用播
   render();
@@ -186,22 +205,24 @@ function startGame(side) {
   const pick = () => openPolicyPick((id) => {
     if (myGen !== gen || !choosePolicy(game, me, id)) return;
     closeModal();
+    if (kind === 'daily') toast(t('每日挑戰 {d}：大家今天打同一副牌', { d: dailyDate.slice(5).replace('-', '/') }), me, true);
     toast(t(game.first === me ? '你是先手！' : '對手先手，你多拿 1 張牌'), me, true);
     if (easeNotice) { const n = easeNotice; easeNotice = ''; setTimeout(() => toast(n, opp, true), 1400); }
     nextPhase();
   });
-  if (!maybeShowHelp(pick)) pick();
+  if (kind === 'tutorial' || !maybeShowHelp(pick)) pick();
 }
 
 // 開局選競選策略。onPick(id)；連線時 deadlineAt 倒數，時間到由伺服器自動選第一張
 function openPolicyPick(onPick, deadlineAt = 0) {
+  const note = gameKind === 'tutorial' && mode === 'local' ? `<p class="coach-note">${t('教學：每局開始先選一張競選策略，選哪張都可以。')}</p>` : '';
   const offers = (game.offers && game.offers[me]) || [];
   const items = offers.map((id) => {
     const p = POLICY_BY_ID[id];
     return `<button class="policy-item" data-pick="${id}"><span class="ico">${p.icon}</span><b>${esc(p.name)}</b><span>${esc(p.text)}</span></button>`;
   }).join('');
   openModal(`<h2>${t('選擇競選策略')}</h2>
-    <p class="small">${t('整局有效，雙方選好後會公開。')}</p>
+    ${note}<p class="small">${t('整局有效，雙方選好後會公開。')}</p>
     <div class="policy-list">${items}</div>
     ${deadlineAt ? `<div class="count-ring small-ring" id="m-pcount">${RULES.policySeconds}</div>` : ''}`, { locked: true });
   for (const b of document.querySelectorAll('[data-pick]')) b.onclick = () => { sfx.card(); onPick(b.dataset.pick); };
@@ -296,6 +317,7 @@ function render() {
     const cost = cardCost(game, me, c);
     el.className = `card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity} ${ok ? 'ok' : 'cant'}`;
     if (myTurn && c.combo && game.comboTag === c.combo) el.classList.add('combo-ready');
+    if (myTurn && tutorialTarget(c)) el.classList.add('coach-target');
     if (!seenUids.has(c.uid)) {
       seenUids.add(c.uid);
       el.classList.add('drawn');
@@ -310,6 +332,7 @@ function render() {
   for (let i = mp.hand.length; i < RULES.handMax; i++) hand.insertAdjacentHTML('beforeend', '<div></div>');
 
   syncBoard(game, me, opp);
+  PG.noteScore(game.players[me].supporters, game.players[opp].supporters);
   $('#end-btn').disabled = !isMyTurn();
   $('#ult-btn').classList.toggle('hidden', !(isMyTurn() && canBurst(game, me)));
 }
@@ -356,7 +379,13 @@ function toast(msg, side, big = false) {
 // 把引擎事件排進演出佇列：卡牌先放大展示，再播效果、更新比分。回傳演出結束的 Promise。
 function playEvents() {
   const events = takeEvents(game);
-  if (mode === 'local' && events.length) { observeEvents(profile, events, me); saveProfile(); }
+  if (mode === 'local' && gameKind !== 'demo' && events.length) { observeEvents(profile, events, me); saveProfile(); }
+  if (gameKind !== 'demo' && events.length) {
+    trackBest(events);
+    const got = PG.track(events, me, CARDS.length);
+    got.forEach((a, i) => setTimeout(() => achievementToast(a), 1200 + i * 900));
+    if (tut) tutorialEvents(events);
+  }
   const myGen = gen;
   animating += 1;
   fxChain = fxChain.then(() => (myGen === gen ? animateEvents(events) : null)).catch(() => {}).then(() => {
@@ -427,6 +456,27 @@ function showCast(c) {
     box.onclick = finish;
     setTimeout(finish, 1500);
   });
+}
+
+// 本局我方「拉到最多人」的一手
+function trackBest(events) {
+  const close = () => { if (curPlay && (!bestPlay || curPlay.n > bestPlay.n)) bestPlay = curPlay; curPlay = null; };
+  for (const ev of events) {
+    if (ev.type === 'play' && ev.side === me && !ev.hidden && ev.card) { close(); curPlay = { id: ev.card, n: 0 }; }
+    else if (ev.type === 'pass' && ev.side === opp && ev.asId) { close(); curPlay = { id: ev.asId, n: 0 }; }
+    else if (ev.type === 'ult' && ev.side === me) { close(); curPlay = { ult: ev.name, n: 0 }; }
+    else if ((ev.type === 'pull' || ev.type === 'poach') && ev.side === me && curPlay) curPlay.n += ev.n || 0;
+    else if (ev.type === 'turnEnd' || ev.type === 'gameOver') close();
+  }
+}
+function achievementToast(a) {
+  if (!a) return;
+  sfx.ult();
+  const el = document.createElement('div');
+  el.className = 'ach-toast';
+  el.innerHTML = `<span class="ico">${a.icon}</span><span><b>${esc(t('成就解鎖'))}</b>${esc(a.name)}</span>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
 }
 
 // 卡牌台詞：匿名鄉民推文格式
@@ -612,6 +662,7 @@ async function startMyTurn() {
   await playEvents();
   if (myGen !== gen || !game || game.over) return;
   turnBanner(t('你的回合'), t('第 {r} / {m} 回合', { r: Math.min(game.round, RULES.maxRounds), m: RULES.maxRounds }), me);
+  tutorialMyTurn();
   timeLeft = CONFIG.TURN_SECONDS;
   updateTimer();
   clearInterval(timerId);
@@ -692,13 +743,14 @@ async function runAI() {
   for (let i = 0; i < 6; i++) {
     if (myGen !== gen || game.over) return;
     if (game.current !== opp) break; // 主牌打完已經換人
-    const a = aiStep(game, opp, profile, { ease });
+    const a = tutorialForceDeclare() ? { kind: 'declare' } : aiStep(game, opp, profile, { ease: curEase() });
     if (!a) break;
     render();
     await playEvents();
     if (myGen !== gen) return;
     if (game.pending) {
-      const challenge = await askChallenge(Date.now() + RULES.respondSeconds * 1000);
+      if (tut && tut.step === 'challenge') coach('challenge');
+      const challenge = await askChallenge(Date.now() + RULES.respondSeconds * (tut ? 3000 : 1000));
       if (myGen !== gen || game.over) return;
       respond(game, me, challenge);
       render();
@@ -845,6 +897,8 @@ function openDeclare(uid) {
 
 async function doDeclare(uid, asId) {
   if (!isMyTurn()) return;
+  const realCard = game.players[me].hand.find((x) => x.uid === uid);
+  PG.noteBluff(!!realCard && realCard.id !== asId);
   if (mode === 'online') { send({ t: 'declare', uid, as: asId }); closeModal(); return; }
   const apBefore = game.players[me].ap;
   if (!declareCard(game, me, uid, asId)) return;
@@ -865,7 +919,7 @@ async function doDeclare(uid, asId) {
   showWaitingRespond(Date.now() + 1800);
   const [jevBluff] = await Promise.all([jevAsk, sleep(1300 + Math.random() * 900)]); // 電腦想一下
   if (myGen !== gen || !game || !game.pending) return;
-  const d = respondDecision(game, opp, { profile, jevBluff, ease });
+  const d = respondDecision(game, opp, { profile, jevBluff, ease: curEase() });
   respond(game, opp, d.challenge);
   toast(t('電腦研判你吹牛的機率：{p}%', { p: Math.round(d.p * 100) }) + (d.wJev ? t('（含 Jev 判斷）') : ''), opp);
   closeModal();
@@ -898,7 +952,7 @@ async function askJevBluff(facts) {
 // 每局結束（或中途離開）記一筆戰績，問 Jev「玩家是不是快放棄了」「電腦是不是太好打」，
 // 由這裡的規則決定升降一級。Jev 失敗時改用簡單規則，不把失敗當成判斷結果。
 function recordGame(result) {
-  if (mode !== 'local' || !game || !gameStats) return;
+  if (mode !== 'local' || !game || !gameStats || gameKind !== 'normal') return; // 每日挑戰、教學不影響電腦強度
   const st = gameStats;
   gameStats = null; // 一局只記一次
   mood.recent.push({
@@ -1082,7 +1136,7 @@ function openPrivacy() {
     <p><b>暱稱審核</b>：你輸入的暱稱會送到 TypeSafe 的 Jev 模型，判斷是否冒充真實人物或官方、罵人、歧視或拉票。審核結果（只有暱稱與通過與否）在伺服器保存 7 天，避免重複審核。請不要在暱稱裡放個人資料。</p>
     <p><b>回報問題</b>：你寫的回報內容會送到 TypeSafe 的 Jev 模型自動分類；勾選時另附這局的遊戲數字與瀏覽器種類（例如 Safari、iOS、是否在 LINE 裡開啟），不含 IP 或任何識別資料。回報最多保存 7 天，彙整寄給作者後刪除。</p>
     <p><b>聯絡信箱</b>：寄到聯絡信箱的信，主旨與內文會送到 TypeSafe 的 Jev 模型自動分類（例如下架要求、錯誤回報），寄件人地址不會送出；需要處理的信會轉寄給作者本人。</p>
-    <p>你的瀏覽器會在你的裝置上記住：是否靜音、是否看過教學、上次用的暱稱、進行中對局的識別碼（關閉分頁即清除），以及<b>你對戰電腦時的出牌習慣統計</b>（被抓到吹牛幾次、多常質疑），讓電腦學著猜你。這些統計只存在你的裝置上。</p>
+    <p>你的瀏覽器會在你的裝置上記住：是否靜音、是否看過教學、上次用的暱稱、進行中對局的識別碼（關閉分頁即清除），以及<b>你對戰電腦時的出牌習慣統計</b>（被抓到吹牛幾次、多常質疑），讓電腦學著猜你；另外還有成就、對戰統計、卡牌圖鑑與每日挑戰紀錄。這些都只存在你的裝置上，不會上傳。</p>
     <p><b>對戰電腦時</b>，你蓋牌宣告的當下，伺服器可能把<b>遊戲數字</b>（回合、雙方人數、宣告的卡、上述習慣統計）送到 TypeSafe 的 Jev 模型，請它判斷你像不像在吹牛。送出的資料不含暱稱、IP 或任何個人資料。</p>
     <p><b>電腦強度</b>：每局對戰電腦結束後，伺服器會把<b>最近幾局的遊戲數字</b>（勝負、人數差距、回合數、跳過與逾時次數、局長）送到 TypeSafe 的 Jev 模型，判斷要不要讓電腦放水。不含暱稱、IP 或任何個人資料；戰績統計只存在你的裝置上。</p>
     <p><b>防機器人</b>：線上對戰時，伺服器會記錄你每個動作的反應時間（毫秒），對局結束後把<b>統計數字</b>（平均、最快、變化程度、近一小時場數）送到 TypeSafe 的 Jev 模型，判斷操作像不像腳本。被判定可疑時，會要求做一次真人驗證或暫停線上對戰一段時間。送出的資料不含暱稱、IP 或玩家識別碼。IP 只以每天更換的雜湊值暫存在伺服器記憶體，用來計算近一小時的場數；可疑標記只記在隨機玩家識別碼上，最多保留 24 小時。</p>
@@ -1099,6 +1153,7 @@ function openMenu() {
       <button class="btn" id="m-rules">${t('怎麼玩')}</button>
       <button class="btn" id="m-priv">${t('隱私聲明')}</button>
       <button class="btn" id="m-report">${t('回報問題')}</button>
+      <button class="btn" id="m-album">${t('🏆 成就與圖鑑')}</button>
       <button class="btn" id="m-home">${t(mode === 'online' && game && !game.over ? '離開（30 秒後判負）' : '回首頁（放棄這局）')}</button>
       <button class="btn primary" id="m-ok">${t('繼續')}</button>
     </div>
@@ -1108,8 +1163,203 @@ function openMenu() {
   $('#m-rules').onclick = () => openRules();
   $('#m-priv').onclick = openPrivacy;
   $('#m-report').onclick = openReport;
+  $('#m-album').onclick = () => openAlbum(true);
   $('#m-home').onclick = goHome;
   $('#m-ok').onclick = closeModal;
+}
+
+// ── 每日挑戰 ───────────────────────────────
+function openDaily() {
+  const date = taipeiToday();
+  const side = PG.dailySide(date);
+  const r = PG.dailyRecord(date);
+  openModal(`<h2>${t('📅 每日挑戰')}</h2>
+    <p>${t('今天（{d}）大家打同一副牌：用{side}對戰全力電腦。可以重來，記錄最佳結果。', { d: date.slice(5).replace('-', '/'), side: SIDE_NAME[side] })}</p>
+    <p class="small">${r ? `${r.won ? t('今天已過關') : t('今天還沒過關')}・${t('最佳差距 {n}', { n: r.best > 0 ? `+${r.best}` : r.best })}・${t('已挑戰 {n} 次', { n: r.tries })}` : t('今天還沒挑戰')}・${t('連勝 {n} 天', { n: PG.dailyStreak(date) })}</p>
+    <div class="btns"><button class="btn" id="m-cancel">${t('返回')}</button><button class="btn ${side}" id="m-go">${t('開始挑戰')}</button></div>`);
+  $('#m-cancel').onclick = closeModal;
+  $('#m-go').onclick = () => startGame(side, 'daily');
+}
+
+// ── 成就與圖鑑 ─────────────────────────────
+function openAlbum(fromMenu = false, tab = 'ach') {
+  const st = PG.getStats(), got = PG.unlocked(), seen = PG.seenCards();
+  const tabs = [['ach', t('成就')], ['cards', t('卡牌')], ['pol', t('策略')], ['ven', t('場地事件')]];
+  let body = '';
+  if (tab === 'ach') {
+    body = `<p class="small">${t('對戰 {g} 場・勝 {w} 場・抓到吹牛 {c} 次・連擊 {k} 次', { g: st.games || 0, w: st.wins || 0, c: st.catches || 0, k: st.combos || 0 })}</p>
+      <div class="ach-list">${PG.ACHIEVEMENTS.map((a) => `<div class="ach ${got[a.id] ? 'got' : ''}"><span class="ico">${got[a.id] ? a.icon : '🔒'}</span><span><b>${esc(a.name)}</b>${esc(a.text)}</span></div>`).join('')}</div>`;
+  } else if (tab === 'cards') {
+    const list = CARDS.filter((c) => c.side === 'shared' || c.side === 'blue' || c.side === 'green');
+    body = `<p class="small">${t('已收集 {n} / {m} 張（抽到過就算）', { n: list.filter((c) => seen.has(c.id)).length, m: list.length })}</p>
+      <div class="gallery">${list.map((c) => seen.has(c.id)
+        ? `<button class="g-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity}" data-gal="${c.id}"><img src="${art(c.id)}" alt="" loading="lazy"><b>${esc(c.name)}</b></button>`
+        : '<div class="g-card unknown"><span>？</span></div>').join('')}</div>`;
+  } else if (tab === 'pol') {
+    const used = new Set(st.policies || []);
+    body = `<div class="ach-list">${POLICIES.map((p) => `<div class="ach ${used.has(p.id) ? 'got' : ''}"><span class="ico">${p.icon}</span><span><b>${esc(p.name)}</b>${esc(p.text)}</span></div>`).join('')}</div>`;
+  } else {
+    const met = new Set(st.venues || []);
+    body = `<div class="ach-list">${VENUES.map((v) => `<div class="ach ${met.has(v.id) ? 'got' : ''}"><span class="ico">${met.has(v.id) ? v.icon : '❔'}</span><span><b>${met.has(v.id) ? esc(v.name) : '？？？'}</b>${met.has(v.id) ? esc(v.text) : t('還沒遇過')}</span></div>`).join('')}</div>`;
+  }
+  openModal(`<h2>${t('🏆 成就與圖鑑')}</h2>
+    <div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${k === tab ? 'on' : ''}" data-tab="${k}">${n}</button>`).join('')}</div>
+    ${body}
+    <p class="small">${t('紀錄只存在這台裝置的瀏覽器。')}</p>
+    <div class="btns"><button class="btn primary" id="m-ok">${t(fromMenu ? '返回' : '關閉')}</button></div>`, { pause: true });
+  for (const b of document.querySelectorAll('[data-tab]')) b.onclick = () => openAlbum(fromMenu, b.dataset.tab);
+  for (const b of document.querySelectorAll('[data-gal]')) b.onclick = () => galleryCard(b.dataset.gal, fromMenu);
+  $('#m-ok').onclick = fromMenu ? openMenu : closeModal;
+}
+function galleryCard(id, fromMenu) {
+  const c = CARD_BY_ID[id];
+  openModal(`<div class="big-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity}">
+      <img class="art" src="${art(c.id)}" alt="">
+      <div class="nm">${TYPE[c.type][0]} ${esc(c.name)}</div>
+      <div class="meta">${t('{type}卡・{rar}・行程點 {cost}', { type: t(TYPE[c.type][1]), rar: t(RAR_NAME[c.rarity]), cost: c.cost })}${c.combo ? `・🔗${COMBO_INFO[c.combo].name}` : ''}</div>
+      <div class="tx">${esc(c.text)}</div>${pttLine(c)}</div>
+    <div class="btns"><button class="btn primary" id="m-ok">${t('返回')}</button></div>`, { pause: true });
+  $('#m-ok').onclick = () => openAlbum(fromMenu, 'cards');
+}
+
+// ── 互動教學 ───────────────────────────────
+// 固定手牌，一步一步提示：出牌 → 連擊 → 對手蓋牌時質疑 → 自己蓋牌宣告。電腦用最溫和的強度。
+function openTutorial() {
+  openModal(`<h2>${t('🎓 新手教學')}</h2><p>${t('跟著提示打一局：出牌、連擊、質疑、蓋牌吹牛，大約 3 分鐘。選一邊開始：')}</p>
+    <div class="btns"><button class="btn blue" id="m-tb">${SIDE_NAME.blue}</button><button class="btn green" id="m-tg">${SIDE_NAME.green}</button></div>
+    <div class="btns"><button class="btn" id="m-cancel">${t('返回')}</button></div>`);
+  $('#m-tb').onclick = () => startGame('blue', 'tutorial');
+  $('#m-tg').onclick = () => startGame('green', 'tutorial');
+  $('#m-cancel').onclick = closeModal;
+}
+function setupTutorial() {
+  const mk = (id) => ({ ...CARD_BY_ID[id], uid: game.nextUid++ });
+  const netAttack = me === 'blue' ? 'b_news' : 'g_flash';
+  game.players[me].hand = ['s_street', 's_buzz', netAttack, 's_forum', 's_rain'].map(mk);
+  tut = { step: 'play', turns: 0, forceDeclare: false, net: netAttack };
+}
+const TUT_TEXT = {
+  play: '把「{a}」往上拖到場上放開（或點一下再按「打出」）。一回合只能出一張主牌，出完就換對手。',
+  wait: '很好！現在換對手出牌，看看他做什麼。',
+  combo: '魔法卡不佔回合。卡牌右上角的 📱 是系列：先打「{b}」，再打同系列的「{c}」，就是連擊！',
+  comboOk: '連擊成功！多拉 2 人、聲量 +10。接下來注意對手…',
+  challenge: '對手把一張牌蓋著宣告了！覺得他在吹牛就按「質疑」，猜錯自己會扣人。',
+  declare: '換你吹牛看看：點一張手牌 →「蓋牌宣告」→ 選一張比較強的牌。對手可能會質疑你喔。',
+  done: '教學完成！之後電腦會手下留情，把這局打完吧。想再看規則可以按右上角選單。',
+};
+function coach(key, vars = {}, withOk = false) {
+  let el = $('#coach');
+  if (!el) { el = document.createElement('div'); el.id = 'coach'; document.body.appendChild(el); }
+  el.innerHTML = `<span class="who">🎓</span><span class="msg">${esc(t(TUT_TEXT[key], vars))}</span>${withOk ? `<button class="btn primary" id="coach-ok">${t('知道了')}</button>` : ''}`;
+  el.className = '';
+  if (withOk) $('#coach-ok').onclick = hideCoach;
+}
+function hideCoach() { const el = $('#coach'); if (el) el.className = 'hidden'; }
+function tutorialTarget(c) {
+  if (!tut) return false;
+  if (tut.step === 'play') return c.id === 's_street';
+  if (tut.step === 'combo') return game.comboTag === 'net' ? c.id === tut.net : c.id === 's_buzz';
+  return false;
+}
+function tutorialMyTurn() {
+  if (!tut) return;
+  tut.turns += 1;
+  const nm = (id) => CARD_BY_ID[id].name;
+  if (tut.step === 'play' || tut.turns === 1) { tut.step = 'play'; coach('play', { a: nm('s_street') }); return; }
+  if (tut.turns === 2) { tut.step = 'combo'; coach('combo', { b: nm('s_buzz'), c: nm(tut.net) }); render(); return; }
+  if (tut.turns >= 4) { tut.step = 'done'; coach('done', {}, true); tut = null; return; }
+  if (tut.turns === 3) { tut.step = 'declare'; coach('declare'); render(); }
+}
+function tutorialEvents(events) {
+  for (const ev of events) {
+    if (!tut) return;
+    if (ev.type === 'play' && ev.side === me && tut.step === 'play') { tut.step = 'wait'; coach('wait'); }
+    if (ev.type === 'combo' && ev.side === me) { tut.step = 'comboOk'; tut.forceDeclare = true; coach('comboOk'); }
+    if (ev.type === 'turnEnd' && ev.side === me && tut.step === 'combo') { tut.forceDeclare = true; }
+    if (ev.type === 'declare' && ev.side === me && tut.step === 'declare') { tut.step = 'done'; setTimeout(() => { coach('done', {}, true); tut = null; }, 2500); }
+  }
+}
+// 教學第二輪：電腦一定會蓋牌宣告一次，讓玩家練習質疑
+function tutorialForceDeclare() {
+  if (!tut || !tut.forceDeclare || !canDeclareAny(game, opp)) return false;
+  const hand = game.players[opp].hand.filter((c) => c.type !== 'trap');
+  const as = declarableCards(game, opp).filter((c) => cardCost(game, opp, c) <= game.players[opp].ap).sort((a, b) => b.cost - a.cost)[0];
+  if (!hand.length || !as) return false;
+  const junk = hand.find((c) => c.id !== as.id) || hand[0];
+  tut.forceDeclare = false;
+  tut.step = 'challenge';
+  return declareCard(game, opp, junk.uid, as.id);
+}
+
+// ── 電視台展示模式：首頁閒置一段時間後，自動播電腦對電腦的對局；按任何鍵或點一下就回首頁 ──
+let attractTimer = null;
+const attractOn = () => window.parent !== window || /[?&](tv|attract)=1/.test(location.search);
+function setupAttract() {
+  if (!attractOn()) return;
+  const wake = () => { if (gameKind === 'demo') stopDemo(); else armAttract(); };
+  for (const evn of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(evn, wake, { capture: true, passive: true });
+  armAttract();
+}
+function armAttract() {
+  clearTimeout(attractTimer);
+  if (!attractOn()) return;
+  attractTimer = setTimeout(() => { if (!$('#title').classList.contains('hidden') && $('#modal').classList.contains('hidden')) startDemo(); else armAttract(); }, 25_000);
+}
+function stopAttract() { clearTimeout(attractTimer); }
+function startDemo() {
+  gen += 1;
+  mode = 'local';
+  gameKind = 'demo';
+  names = { blue: null, green: null };
+  const side = Math.random() < 0.5 ? 'blue' : 'green';
+  game = createGame({ seed: Math.floor(Math.random() * 2 ** 31), today: taipeiToday() });
+  setupBattle(side);
+  aiChoosePolicy(game, 'blue'); aiChoosePolicy(game, 'green');
+  takeEvents(game);
+  render();
+  let b = $('#demo-banner');
+  if (!b) { b = document.createElement('div'); b.id = 'demo-banner'; $('#battle').appendChild(b); }
+  b.textContent = t('展示中・按任意鍵或點一下開始玩');
+  b.classList.remove('hidden');
+  demoLoop(gen);
+}
+async function demoLoop(myGen) {
+  while (game && !game.over && myGen === gen) {
+    const side = game.current;
+    await sleep(900);
+    for (let i = 0; i < 6 && myGen === gen && !game.over && game.current === side; i++) {
+      const a = aiStep(game, side, null, { ease: 0 });
+      if (!a) break;
+      render();
+      await playEvents();
+      if (myGen !== gen) return;
+      if (game.pending) {
+        await sleep(1200);
+        const d = respondDecision(game, other(side), {});
+        respond(game, other(side), d.challenge);
+        render();
+        await playEvents();
+      }
+      await sleep(600);
+    }
+    if (myGen !== gen || !game || game.over) break;
+    if (game.current === side) { endTurn(game); render(); await playEvents(); }
+  }
+}
+function demoFinished() {
+  const myGen = gen;
+  setTimeout(() => { if (myGen === gen && gameKind === 'demo') startDemo(); }, 5000);
+}
+function stopDemo() {
+  gen += 1;
+  gameKind = 'normal';
+  game = null;
+  syncBoard(null);
+  crowd.stop();
+  const b = $('#demo-banner'); if (b) b.classList.add('hidden');
+  closeModal();
+  show('title');
+  armAttract();
 }
 
 // ── 回報問題 ───────────────────────────────
@@ -1155,6 +1405,8 @@ function openReport() {
 function goHome() {
   if (mode === 'local' && game && !game.over) recordGame('quit');
   gen += 1;
+  tut = null; hideCoach();
+  gameKind = 'normal';
   leaveOnline();
   mode = 'local';
   names = { blue: null, green: null };
@@ -1165,10 +1417,12 @@ function goHome() {
   crowd.stop();
   closeModal();
   show('title');
+  armAttract();
 }
 
 function showResult() {
   if (resultShown || !game) return;
+  if (gameKind === 'demo') { demoFinished(); return; }
   resultShown = true;
   clearInterval(timerId);
   try { sessionStorage.removeItem('bg_room'); } catch { /* 忽略 */ }
@@ -1177,6 +1431,14 @@ function showResult() {
   const won = w === me;
   if (w === 'draw') sfx.lose(); else if (won) sfx.win(); else sfx.lose();
   recordGame(w === 'draw' ? 'draw' : won ? 'win' : 'loss');
+  const margin = game.players[me].supporters - game.players[opp].supporters;
+  const got = PG.finishGame(w === 'draw' ? 'draw' : won ? 'win' : 'loss', margin);
+  got.forEach((a, i) => setTimeout(() => achievementToast(a), 900 + i * 900));
+  const dailyLine = gameKind === 'daily' ? (() => {
+    const r = PG.dailyRecord(dailyDate);
+    return `<p class="center daily-line">${t('每日挑戰 {d}', { d: dailyDate.slice(5).replace('-', '/') })}・${r && r.won ? t('今天已過關') : t('今天還沒過關')}・${t('連勝 {n} 天', { n: PG.dailyStreak(dailyDate) })}</p>`;
+  })() : '';
+  if (gameKind === 'tutorial') tut = null;
   setOppFace(w === opp ? 'win' : w === me ? 'lose' : 'idle');
   const img = w === 'draw' ? `${me}_idle` : won ? `${me}_win` : `${me}_lose`;
   const title = t(w === 'draw' ? '平手！' : won ? '你贏了！' : '你輸了…');
@@ -1185,8 +1447,9 @@ function showResult() {
     <h2 class="center">${title}</h2>
     <div class="score"><span class="b">${t('藍 {b}', { b })}</span> : <span class="g">${t('{g} 綠', { g })}</span></div>
     <p class="center small">${esc(tr(game.reason))}</p>
+    ${dailyLine}
     <div class="btns"><button class="btn ${me}" id="m-again">${t('再玩一次')}</button><button class="btn ${opp}" id="m-swap">${t('換陣營')}</button></div>
-    <div class="btns"><button class="btn" id="m-share">${t('分享')}</button><button class="btn" id="m-home">${t('回首頁')}</button></div>
+    <div class="btns"><button class="btn" id="m-card">${t('📸 戰績圖卡')}</button><button class="btn" id="m-share">${t('分享')}</button><button class="btn" id="m-home">${t('回首頁')}</button></div>
     <div class="ptt center-ptt">${w === 'draw'
       ? `<span class="tag arrow">→</span><span class="id">${t('鄉民')}</span>: <span class="msg">${t('平手？這劇本誰寫的')}</span>`
       : won ? `<span class="tag push">${TONE_TAG.push}</span><span class="id">${t('鄉民')}</span>: <span class="msg">${t('恭喜！好人一生平安')}</span>`
@@ -1197,11 +1460,37 @@ function showResult() {
     $('#m-swap').textContent = t('對戰電腦');
     $('#m-again').onclick = () => { const s = me; leaveOnline(); randomMatch(s); };
     $('#m-swap').onclick = () => { const s = me; leaveOnline(); startGame(s); };
+  } else if (gameKind === 'daily') {
+    $('#m-again').onclick = () => startGame(me, 'daily');
+    $('#m-swap').textContent = t('一般對戰');
+    $('#m-swap').onclick = () => startGame(me);
   } else {
     $('#m-again').onclick = () => startGame(me);
     $('#m-swap').onclick = () => startGame(opp);
   }
   $('#m-home').onclick = goHome;
+  $('#m-card').onclick = async () => {
+    $('#m-card').disabled = true;
+    try {
+      const best = bestPlay && (bestPlay.ult ? nameEN(bestPlay.ult) : CARD_BY_ID[bestPlay.id] && CARD_BY_ID[bestPlay.id].name);
+      const pol = POLICY_BY_ID[game.players[me].policy];
+      const blob = await drawShareCard({
+        side: me, won, draw: w === 'draw', blue: b, green: g, title, reason: tr(game.reason), sideName: SIDE_NAME[me],
+        policy: pol ? `${pol.icon}${pol.name}` : '', best: best ? t('{name}（+{n} 人）', { name: best, n: bestPlay.n }) : '',
+        daily: gameKind === 'daily' ? t('每日挑戰 {d}', { d: dailyDate.slice(5).replace('-', '/') }) : '',
+        url: shareUrl().replace(/^https?:\/\//, '').replace(/\/$/, ''),
+        labels: {
+          titleParts: EN ? [['Blue', 'blue'], ['–', 'ink'], ['Green', 'green'], [' Showdown', 'ink']] : [['藍', 'blue'], ['綠', 'green'], ['攻防戰', 'ink']],
+          blue: t('藍'), green: t('綠'), played: t('我的陣營與策略'), best: t('本局最佳一手'),
+          disclaimer: t('政治諷刺娛樂，非任何候選人、政黨或競選團隊製作；結果與實際選情無關'),
+        },
+      });
+      const text = t('我在《藍綠攻防戰》用{side}打到 藍 {b} : {g} 綠，{title} 來挑戰：{url}', { side: SIDE_NAME[me], b, g, title, url: shareUrl() });
+      const r = await shareImage(blob, 'bluegreen-showdown.png', text);
+      if (r === 'downloaded') toast(t('圖卡已下載'));
+    } catch (e) { console.warn(e); toast(t('圖卡產生失敗')); }
+    $('#m-card').disabled = false;
+  };
   $('#m-share').onclick = async () => {
     const text = t('我在《藍綠攻防戰》用{side}打到 藍 {b} : {g} 綠，{title} 來挑戰：{url}', { side: SIDE_NAME[me], b, g, title, url: shareUrl() });
     try {
@@ -1432,7 +1721,10 @@ function onRoomMessage(data) {
 
   if (battleRoom !== v.code) {
     battleRoom = v.code;
+    gameKind = 'normal'; tut = null;
     setupBattle(v.you);
+    bestPlay = null; curPlay = null;
+    PG.startGame({ side: v.you, mode: 'online' });
     game = v.state;
     game.events = [];
     render();
