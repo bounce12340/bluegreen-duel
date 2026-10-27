@@ -12,7 +12,7 @@ errors = []
 try:
     with sync_playwright() as p:
         b = p.chromium.launch()
-        pg = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
+        pg = b.new_page(locale="zh-TW", viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
         pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto("http://localhost:8765/index.html")

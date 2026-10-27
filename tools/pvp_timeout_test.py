@@ -6,7 +6,7 @@ BASE = os.environ.get("BASE", "http://localhost:8788/")
 with sync_playwright() as p:
     b = p.chromium.launch()
     def player(side, name):
-        ctx = b.new_context(viewport={"width": 390, "height": 844}); pg = ctx.new_page(); pg.goto(BASE)
+        ctx = b.new_context(locale="zh-TW", viewport={"width": 390, "height": 844}); pg = ctx.new_page(); pg.goto(BASE)
         pg.wait_for_selector("#title:not(.hidden)"); pg.click(f".pick-btn.{side}"); pg.fill("#m-name", name); pg.click("#m-rand"); return pg, ctx
     a, actx = player("blue", "逾時甲"); g, gctx = player("green", "逾時乙")
     a.wait_for_selector("#battle:not(.hidden)", timeout=15000); g.wait_for_selector("#battle:not(.hidden)", timeout=15000)

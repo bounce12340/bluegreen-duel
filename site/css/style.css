@@ -337,3 +337,11 @@ body.in-battle #footer { display: none; }
   .card .art { aspect-ratio: 16 / 10; }
   .info .statuses { display: none; }
 }
+
+/* 英文版：手機直式的手牌字比較長，卡名稍微縮小 */
+@media (max-width: 599px) {
+  html[lang="en"] .card .nm { font-size: 10.5px; letter-spacing: -.1px; }
+  html[lang="en"] .card .tx { font-size: 9px; }
+  html[lang="en"] .info .who .small { display: block; font-size: 10px; }
+}
+html[lang="en"] .card .nm { overflow-wrap: anywhere; }

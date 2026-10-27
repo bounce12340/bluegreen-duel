@@ -1,9 +1,9 @@
 # 藍綠攻防戰 · Blue–Green Showdown
 
 **A 1v1 political-satire card game about the 2026 Taipei mayoral race, playable in the browser.**
-Two original chibi mascots — 萬安號 (blue camp) and 伯洋號 (green camp) — compete in front of Taipei City Hall to win over 100 undecided voters. First to 51 supporters wins.
+Two original chibi mascots — Little Wayne / 萬安號 (blue camp) and Little Puma / 伯洋號 (green camp) — compete in front of Taipei City Hall to win over 100 undecided voters. First to 51 supporters wins.
 
-▶ **Play:** https://bluegreen-duel.pages.dev　·　[繁體中文說明](#繁體中文)
+▶ **Play in English:** https://bluegreen-duel.pages.dev/?lang=en　·　**中文版：** https://bluegreen-duel.pages.dev/?lang=zh　·　[繁體中文說明](#繁體中文)
 
 > Satire for entertainment. Not made by or affiliated with any candidate, party, or campaign; nothing in the game represents what any real person said or did. The mascots are original cartoon characters, and all artwork is AI-generated.
 
@@ -20,6 +20,7 @@ Two original chibi mascots — 萬安號 (blue camp) and 伯洋號 (green camp) 
 - **A computer opponent that learns you.** It makes expected-value decisions, remembers how often you bluff and challenge, and asks the Jev decision model whether this particular declaration looks like a bluff.
 - **Online play.** Random matchmaking (with a 30-second countdown that falls back to the computer) and 5-character private rooms. The server is authoritative: hidden cards and RNG state never reach the opponent's browser.
 - **Netizen voice.** All flavour text is written as anonymous PTT-style comments (推／噓／→) or Threads-style posts — never as words of a real person.
+- **English and Traditional Chinese.** Browsers without Chinese get English automatically; `?lang=en` / `?lang=zh` or the link on the title screen switches and is remembered. Cards, crowd comments, rules and privacy text are all translated; rules and balance are identical, and English and Chinese players can play each other online.
 - **Two layouts.** 9:16 for phones, 16:9 for desktops, tablets and embedded TV frames (from 640×360 up).
 - **Election-law safeguards.** The whole site closes on voting day (2026-11-28, Taipei time); no poll content; no calls to vote.
 
@@ -59,7 +60,7 @@ Browser ──► Cloudflare Pages (site/) ──► Pages Function /api/* ─�
 
 | Path | Contents |
 |---|---|
-| `site/` | The website (Pages output): UI, rules engine, AI opponent, cards, chatter, topical cards, art |
+| `site/` | The website (Pages output): UI, rules engine, AI opponent, cards, chatter, topical cards, art; `site/js/i18n.js` holds the English text |
 | `functions/api/` | Pages Function that proxies `/api/*` (including WebSockets) to the Worker |
 | `worker/` | Worker + Durable Objects, Jev integration, inbox triage |
 | `tools/` | Balance simulator, content and topical-card checks, browser tests |
@@ -70,7 +71,7 @@ Browser ──► Cloudflare Pages (site/) ──► Pages Function /api/* ─�
 
 1. **Balance simulation** — 1,000 computer-vs-computer games including all topical cards; the deploy stops if either side wins outside 40–60%. (Latest 3,000-game run: blue 50.7% / green 49.3%, first player 50.5%.)
 2. **Topical-card check** — dates, sources, expiry by 2026-11-27, and blue/green pairs with identical cost and effect.
-3. **Jev content check** — see the table above.
+3. **Jev content check** — see the table above; the English card text and crowd comments are checked with the same rules.
 4. Deploy the Worker, write secrets, deploy Pages.
 
 ## Run locally
@@ -102,7 +103,7 @@ python3 tools/fx_test.py         # a full game against the computer
 
 ## Embedding
 
-The site may be embedded only by [encore.taipei](https://encore.taipei) (`frame-ancestors`); every other site is blocked. Inside that TV frame, the remote's volume controls sound effects, colour keys open screens (🔴 how to play, 🟢 menu, 🟡 report, 🔵 mute — they never play a card for you), and ← → change channel.
+The site may be embedded only by [encore.taipei](https://encore.taipei) (`frame-ancestors`); every other site is blocked. Inside that TV frame, the remote's volume controls sound effects, colour keys open screens (🔴 how to play, 🟢 menu, 🟡 report, 🔵 mute — they never play a card for you), and ← → change channel. The embedded game defaults to Chinese; add `?lang=en` to the embed URL for English.
 
 ## Content rules and privacy
 
@@ -134,6 +135,7 @@ Claude (development) · TypeSafe Jev (decision model) · Higgsfield (AI artwork)
 - **會學習的電腦對手**：期望值決策、記住你吹牛與質疑的習慣，並請 Jev 判斷這次像不像吹牛。
 - **線上對戰**：隨機配對（30 秒沒配到改跟電腦）與 5 碼朋友房；伺服器權威，蓋牌與亂數不會外傳。
 - **鄉民口吻**：卡牌台詞都是匿名 PTT 推文或脆文，不是任何真人說的話。
+- **中英雙語**：瀏覽器語言沒有中文時自動顯示英文；網址加 `?lang=en`／`?lang=zh` 或首頁的語言連結可切換並記住。卡牌、群眾留言、規則、隱私聲明都有英文；規則與平衡完全相同，中英文玩家可以互相連線對戰。嵌在台北安可電視台時預設中文。
 - **雙版面**：手機 9:16；電腦、平板、電視台小畫框 16:9（640×360 起）。
 - **選罷法**：投票日（2026-11-28，台北時間）全站關閉；沒有民調內容、沒有投票呼籲。
 

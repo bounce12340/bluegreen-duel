@@ -11,8 +11,8 @@ os.makedirs(OUT, exist_ok=True)
 errors = []
 
 
-def new_player(b, tag):
-    ctx = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, is_mobile=True, has_touch=True)
+def new_player(b, tag, locale="zh-TW"):
+    ctx = b.new_context(locale=locale, viewport={"width": 390, "height": 844}, device_scale_factor=1, is_mobile=True, has_touch=True)
     pg = ctx.new_page()
     pg.on("pageerror", lambda e: errors.append(f"{tag}: {e}"))
     pg.on("console", lambda m: m.type == "error" and errors.append(f"{tag}: {m.text}"))
@@ -62,7 +62,7 @@ with sync_playwright() as p:
     # 2. 隨機配對（不同陣營，應立即配對）
     a.fill("#m-name", "測試甲")
     a.click("#m-rand")
-    g = new_player(b, "B")
+    g = new_player(b, "B", os.environ.get("B_LOCALE", "zh-TW"))  # B_LOCALE=en-US：測中英文玩家對戰
     open_menu(g, "green", "測試乙")
     g.click("#m-rand")
     a.wait_for_selector("#battle:not(.hidden)", timeout=15000)
@@ -90,6 +90,10 @@ with sync_playwright() as p:
     a.screenshot(path=f"{OUT}/a_end.png"); g.screenshot(path=f"{OUT}/b_end.png")
     print("A 結果:", a.inner_text(".modal-box h2") if a.is_visible("#m-again") else "未結束")
     print("B 結果:", g.inner_text(".modal-box h2") if g.is_visible("#m-again") else "未結束")
+    if os.environ.get("B_LOCALE", "zh-TW").startswith("en"):
+        import re
+        leak = [l for l in g.evaluate("document.body.innerText").split("\n") if re.search(r"[\u4e00-\u9fff]", l) and l.strip() != "中文"]
+        print("B（英文）畫面殘留中文：", leak[:8] or "無")
 
     # 3. 朋友房
     h = new_player(b, "H")

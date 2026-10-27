@@ -5,7 +5,8 @@
 // - Jev 呼叫失敗：視為「沒檢查到」，印出警告，不當成合格或不合格
 import { writeFileSync } from 'node:fs';
 import { CARDS, ULTS } from '../site/js/cards.js';
-import { CHATTER, TONE_TAG } from '../site/js/chatter.js';
+import { CHATTER, TONE_TAG, CHATTER_EN, TONE_TAG_EN } from '../site/js/chatter.js';
+import { CARD_EN, ULT_EN } from '../site/js/i18n.js';
 import { judgeCard, CONTENT_RULES, NEWS_RULES, JEV_MODEL } from '../worker/src/jev.js';
 import { NEWS_CARDS } from '../site/js/news_cards.js';
 
@@ -40,6 +41,26 @@ for (const [kind, lines] of Object.entries(CHATTER)) {
   items.push({ id: `chatter_${kind}`, card: {
     name: `crowd comments (${kind})`, belongs_to: 'shared（雙方共用）', kind: 'anonymous crowd comments shown during play',
     comments: lines.map(([tone, text]) => `${TONE_TAG[tone]} ${text}`),
+  } });
+}
+
+// 英文版：卡名、說明、台詞與群眾留言也用同一套規則檢查（id 加 _en）
+for (const c of CARDS) {
+  const e = CARD_EN[c.id];
+  if (e) items.push({ id: `${c.id}_en`, card: { name: e.name, belongs_to: sideLabel[c.side], effect: e.text, flavor_text: `anonymous netizen comment: ${e.flavor}` } });
+}
+for (const [side, list] of Object.entries(ULTS)) for (const u of list) {
+  const e = ULT_EN[u.id];
+  if (e) items.push({ id: `${u.id}_en`, card: { name: e.name, belongs_to: sideLabel[side], kind: 'special move', effect: e.text } });
+}
+for (const c of NEWS_CARDS) {
+  if (c.en) items.push({ id: `${c.id}_en`, news: true, card: { name: c.en.name, belongs_to: sideLabel[c.side], kind: 'topical card', effect: c.en.text,
+    flavor_text: `anonymous netizen comment: ${c.en.flavor}`, about: c.topic || '', news_sources: c.sources } });
+}
+for (const [kind, lines] of Object.entries(CHATTER_EN)) {
+  items.push({ id: `chatter_${kind}_en`, card: {
+    name: `crowd comments (${kind}, English)`, belongs_to: 'shared（雙方共用）', kind: 'anonymous crowd comments shown during play',
+    comments: lines.map(([tone, text]) => `${TONE_TAG_EN[tone]} ${text}`),
   } });
 }
 

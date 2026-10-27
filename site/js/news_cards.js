@@ -10,7 +10,8 @@ export const NEWS_CARDS = [
   // 範本（複製後改掉內容；id 一律 n_ 開頭）：
   // { id: 'n_example_b', pair: 'n_example_g', side: 'blue', type: 'attack', cost: 2, rarity: 'common',
   //   name: '卡名', text: '拉 6 人', fx: { pull: 6 }, flavor: '匿名網友留言（不能是真人發言）', tone: 'push',
-  //   from: '2026-11-01', until: '2026-11-10', sources: ['https://…'], topic: '這張卡在講哪則新聞' },
+  //   from: '2026-11-01', until: '2026-11-10', sources: ['https://…'], topic: '這張卡在講哪則新聞',
+  //   en: { name: 'Card name', text: 'Win 6 voters', flavor: 'Anonymous netizen comment' } },  // 英文版用；沒填就顯示中文
 ];
 
 // 沒有專屬插圖的時事卡用通用的「快訊」圖

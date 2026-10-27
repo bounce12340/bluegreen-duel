@@ -14,7 +14,7 @@ setTimeout(() => process.exit(1), 20000);
 """
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={"width": 390, "height": 844})
+    pg = b.new_page(locale="zh-TW", viewport={"width": 390, "height": 844})
     pg.goto(BASE); pg.wait_for_selector("#title:not(.hidden)")
     pg.click(".pick-btn.blue"); pg.fill("#m-name", "等人的人"); pg.click("#m-rand")
     pg.wait_for_selector("#m-count"); pg.wait_for_timeout(2500)
@@ -25,7 +25,7 @@ with sync_playwright() as p:
     print("30 秒後自動改跟電腦：", pg.is_visible("#battle"), "，結束回合按鈕存在：", pg.is_visible("#end-btn"))
 
     # 幽靈對手
-    g = b.new_page(viewport={"width": 390, "height": 844})
+    g = b.new_page(locale="zh-TW", viewport={"width": 390, "height": 844})
     g.goto(BASE); g.wait_for_selector("#title:not(.hidden)")
     g.click(".pick-btn.blue"); g.fill("#m-name", "正常玩家"); g.click("#m-rand")
     g.wait_for_timeout(1500)

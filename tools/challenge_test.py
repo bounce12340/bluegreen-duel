@@ -12,7 +12,7 @@ os.makedirs(OUT, exist_ok=True)
 errors = []
 
 def page(b, tag):
-    pg = b.new_page(viewport={"width": 390, "height": 844})
+    pg = b.new_page(locale="zh-TW", viewport={"width": 390, "height": 844})
     pg.on("pageerror", lambda e: errors.append(f"{tag}: {e}"))
     pg.on("console", lambda m: m.type == "error" and errors.append(f"{tag}: {m.text}"))
     pg.goto(BASE); pg.wait_for_selector("#title:not(.hidden)")

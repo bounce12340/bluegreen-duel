@@ -49,7 +49,7 @@ def declare_once(pg):
 
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={"width": 390, "height": 844})
+    pg = b.new_page(locale="zh-TW", viewport={"width": 390, "height": 844})
     pg.on("console", lambda m: m.type in ("warning", "error") and warns.append(m.text))
     pg.goto(BASE); pg.wait_for_selector("#title:not(.hidden)")
     pg.click(".pick-btn.blue"); pg.click("#m-ai"); pg.wait_for_timeout(500)
