@@ -202,7 +202,14 @@ export async function judgeNickname(apiKey, nickname, url = JEV_URL) {
 // 寄件人地址不送給 Jev，只送主旨與內文（截斷）。
 export const MAIL_CONTEXT = 'This email was sent to the public contact address of 藍綠攻防戰, a free online political-satire card game about the 2026 Taipei mayoral race between 蔣萬安 (KMT) and 沈伯洋 (DPP). The game is not made by any candidate, party, or campaign.';
 export const MAIL_QUESTIONS = {
-  asks_removal: { type: 'noul', instructions: 'Does `email` ask for the game, or something in it, to be taken down, removed, or changed?' },
+  asks_removal: {
+    type: 'noul',
+    instructions: 'Does `email` ask for the game, or something in it, to be taken down or removed?',
+    criteria: {
+      true: 'The writer asks for the game, a card, or other content to be removed, taken down, or toned down.',
+      false: 'The writer only praises the game, reports a problem, or suggests adding new features.',
+    },
+  },
   speaks_for_official: { type: 'noul', instructions: 'Does the writer of `email` say they represent a candidate, a campaign, a political party, a government agency, or the election commission?' },
   mentions_legal: { type: 'noul', instructions: 'Does `email` mention legal action, a lawyer, a court, or a specific law?' },
   reports_bug: { type: 'noul', instructions: 'Does `email` describe the game not working, such as an error, a freeze, or something broken?' },
@@ -239,16 +246,19 @@ export const MAIL_QUESTIONS = {
 const NOUL_MAIL_KEYS = Object.keys(MAIL_QUESTIONS).filter((k) => MAIL_QUESTIONS[k].type === 'noul');
 
 // 緊急程度（0–3）：Jev 的分級打底，再用是非題當安全網——
-// 要求下架、自稱官方、提到法律、用錢換內容、記者來信，至少算 2 級（一定轉寄），不會因為分級偏低就漏掉。
+// 自稱官方、提到法律、用錢換內容、記者來信，至少算 2 級（一定轉寄）；
+// 提到法律又要求下架或自稱官方（像律師函），直接算 3 級。
+// 單純「要求拿掉某張卡」不強制升級，由 Jev 分級判斷（網友建議通常是 1 級，進晚上彙整）。
 //   3 特急：立即轉寄　2 需本人處理：轉寄　1 一般：晚上彙整　0 垃圾：只貼標籤
 export const MAIL_LEVEL_CUTS = [0.5, 1.5, 2.5];
 export function mailLevel(scores) {
   const u = scores.urgency;
   let level = MAIL_LEVEL_CUTS.filter((c) => u >= c).length;
-  const urgentKeys = ['asks_removal', 'speaks_for_official', 'mentions_legal', 'money_for_content'];
+  const urgentKeys = ['speaks_for_official', 'mentions_legal', 'money_for_content'];
   const ruleUrgent = urgentKeys.some((k) => scores[k] >= 0.5);
   if (ruleUrgent || scores.from_press >= 0.7) level = Math.max(level, 2);
-  if (level < 1 && (scores.reports_bug >= 0.7 || scores.about_money >= 0.7)) level = 1; // 錯誤回報、贊助不算垃圾
+  if (scores.mentions_legal >= 0.5 && (scores.asks_removal >= 0.5 || scores.speaks_for_official >= 0.5)) level = 3;
+  if (level < 1 && (scores.reports_bug >= 0.7 || scores.about_money >= 0.7 || scores.asks_removal >= 0.5)) level = 1; // 不算垃圾
   return { level, ruleUrgent };
 }
 
