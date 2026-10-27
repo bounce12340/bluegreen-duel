@@ -116,7 +116,12 @@ Claude (development) · TypeSafe Jev (decision model) · Higgsfield (AI artwork)
 
 ## License
 
-[MIT](LICENSE) © 2026 Josh Tsai
+Noncommercial use only. © 2026 Josh Tsai
+
+- **Code:** [PolyForm Noncommercial 1.0.0](LICENSE) — free for personal, educational, research and other noncommercial use.
+- **Artwork and game text** (mascots, card art, card text, crowd comments, videos): [CC BY-NC 4.0](LICENSE-ASSETS.md).
+- **Commercial use** requires a separate license: bluegreen-duel@agentmail.to.
+- Versions published before 2026-10-28 were MIT-licensed; copies obtained under those versions keep those terms.
 
 ---
 
@@ -167,4 +172,8 @@ Claude (development) · TypeSafe Jev (decision model) · Higgsfield (AI artwork)
 - 不需註冊。對局資料結束約 1 分鐘後刪除；暱稱審核結果保存 7 天；回報最多 7 天；可疑標記最多 24 小時；IP 只以每日換鹽的雜湊值暫存；出牌習慣統計只存在玩家瀏覽器。
 
 ### 授權
-[MIT](LICENSE) © 2026 Josh Tsai
+僅限非商業使用。© 2026 Josh Tsai
+- **程式碼**：[PolyForm Noncommercial 1.0.0](LICENSE)，個人、教學、研究等非商業用途可自由使用、修改與散布。
+- **美術與遊戲文字**（吉祥物、卡圖、卡牌文字、群眾留言、宣傳影片）：[CC BY-NC 4.0](LICENSE-ASSETS.md)。
+- **商業使用**須另行取得授權：bluegreen-duel@agentmail.to。
+- 2026-10-28 以前發布的版本為 MIT 授權，依當時版本取得的副本仍適用 MIT。

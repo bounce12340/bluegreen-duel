@@ -1,1 +1,1 @@
-{"type":"module","private":true,"name":"bluegreen-duel","scripts":{"sim":"node tools/sim.mjs 3000"}}
+{"type": "module", "private": true, "name": "bluegreen-duel", "scripts": {"sim": "node tools/sim.mjs 3000"}, "license": "PolyForm-Noncommercial-1.0.0"}
