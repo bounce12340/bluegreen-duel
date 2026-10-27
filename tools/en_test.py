@@ -29,7 +29,9 @@ try:
             pg.screenshot(path=f"{OUT}/{name}_2mode.png"); check(pg, "mode")
             pg.click("#m-ai"); pg.wait_for_timeout(700)
             pg.screenshot(path=f"{OUT}/{name}_3rules.png"); check(pg, "rules")
-            pg.click("#m-ok")
+            pg.click("#m-ok"); pg.wait_for_timeout(400)
+            pg.screenshot(path=f"{OUT}/{name}_3b_policy.png"); check(pg, "policy")
+            if pg.locator(".policy-item").first.is_visible(): pg.locator(".policy-item").first.click()
             for _ in range(40):
                 if pg.evaluate("!document.querySelector('#end-btn').disabled"): break
                 pg.wait_for_timeout(500)
@@ -56,6 +58,8 @@ try:
                     except Exception: pass
                 if pg.locator(".result-img").is_visible(): break
                 try:
+                    if pg.locator(".policy-item").first.is_visible():
+                        pg.locator(".policy-item").first.click(timeout=1500); continue
                     if pg.locator("#m-challenge").is_visible():
                         pg.click("#m-challenge", timeout=1500); pg.wait_for_timeout(300); continue
                     if pg.evaluate("!document.querySelector('#end-btn').disabled && document.querySelector('#modal').classList.contains('hidden') && document.querySelector('#cast').classList.contains('hidden')"):

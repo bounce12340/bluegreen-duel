@@ -1,7 +1,7 @@
 // 中英切換。中文是原文：程式裡直接寫中文句子當鍵值，英文版查下面的對照表；查不到就顯示中文（不會壞掉）。
 // 語言判斷順序：網址 ?lang=en|zh → 上次選擇（localStorage bg_lang）→ 瀏覽器語言（只要有中文就用中文）。
 // 卡牌、大絕招、狀態的英文在這裡集中管理，載入時直接換掉卡牌物件上的文字（遊戲規則與平衡完全不變）。
-import { CARDS, ULTS, STATUS_INFO, SIDE_NAME, SIDE_FULL } from './cards.js';
+import { CARDS, ULTS, STATUS_INFO, SIDE_NAME, SIDE_FULL, POLICIES, VENUES, COMBO_INFO } from './cards.js';
 import { NEWS_CARDS } from './news_cards.js';
 
 function detect() {
@@ -92,7 +92,31 @@ for (const list of Object.values(ULTS)) for (const u of list) if (ULT_EN[u.id]) 
 Object.assign(NAME_ZH_TO_EN, SUMMON_EN);
 export const nameEN = (zh) => (EN ? NAME_ZH_TO_EN[zh] || zh : zh);
 
+export const POLICY_EN = {
+  p_grassroots: { name: 'Grassroots Network', text: 'Your summoned teams stay 1 extra turn' },
+  p_online: { name: 'Online First', text: 'Your hype grows 5 more each turn' },
+  p_early: { name: 'Early Bird', text: 'Win 3 voters right at the start' },
+  p_debater: { name: 'Debate Pro', text: 'When you catch a bluff they lose 3 more; when you call it wrong you lose 2 fewer' },
+  p_turnout: { name: 'Get Out the Vote', text: 'From round 9, win 1 voter at the start of each turn' },
+  p_steady: { name: 'Slow and Steady', text: 'Your opponent poaches 2 fewer supporters from you' },
+  p_data: { name: 'Data Nerd', text: 'Draw 1 extra card at the start of rounds 4 and 8' },
+  p_crowd: { name: 'Human Wave', text: 'Attack cards that win 5 or more voters win 1 more' },
+};
+export const VENUE_EN = {
+  v_typhoon: { name: 'Typhoon Day Off', text: 'City-wide day off: 1 fewer action point each turn' },
+  v_newyear: { name: 'New Year\'s Eve Concert', text: 'Huge crowds: cards win 2 more voters' },
+  v_mrt: { name: 'MRT Delays', text: 'Everyone\'s stuck at the station: summoned teams win only 1 voter per turn' },
+  v_artnight: { name: 'Art Night', text: 'Night owls come out: a big rally wins 2 more per turn' },
+  v_meme: { name: 'Meme Goes Viral', text: 'Everyone\'s sharing: hype grows 10 more each turn' },
+  v_debate: { name: 'TV Debate', text: 'All eyes on the screen: challenge penalties are 2 higher both ways' },
+  v_market: { name: 'Weekend Market', text: 'Busy streets: attack cards cost 1 less (minimum 1)' },
+};
+const COMBO_EN = { net: 'Online series', ground: 'Grassroots series', staff: 'Staff series' };
+
 if (EN) {
+  for (const x of POLICIES) Object.assign(x, POLICY_EN[x.id] || {});
+  for (const x of VENUES) Object.assign(x, VENUE_EN[x.id] || {});
+  for (const [k, v] of Object.entries(COMBO_EN)) if (COMBO_INFO[k]) COMBO_INFO[k].name = v;
   for (const c of [...CARDS, ...NEWS_CARDS]) {
     const e = CARD_EN[c.id];
     if (!e) continue;
@@ -160,6 +184,12 @@ const DICT = {
   '對手的陷阱翻開了：{list}': 'Opponent\'s traps revealed: {list}',
   '你的回合（第 {n} 回合）': 'Your turn (round {n})',
   你的回合: 'Your turn', 對手回合: 'Opponent\'s turn',
+  選擇競選策略: 'Choose a campaign strategy', '整局有效，雙方選好後會公開。': 'It lasts the whole game. Both picks are revealed once you\'ve both chosen.',
+  '{icon} {name}・剩 {n} 回合': '{icon} {name} · {n} rounds left', 場地事件: 'Venue event', '持續 3 回合・雙方都受影響': 'Lasts 3 rounds · affects both sides',
+  '{who}連擊！{name}：多拉 {n} 人、聲量 +{v}': '{who}: combo! {name}: +{n} voters, hype +{v}',
+  '你的策略：{a}｜對手：{b}': 'Your strategy: {a} | Opponent: {b}', '場地事件「{name}」結束': 'Venue event "{name}" is over',
+  '等對手選策略…': 'Waiting for your opponent to choose…', '雙方都選好就開始。': 'The game starts once you\'ve both chosen.',
+  '{icon} {name}：{text}': '{icon} {name}: {text}',
   '跳過，行程點 {n} 點存著': 'Skipped. {n} action points saved',
   '時間到，自動跳過': 'Time\'s up. Turn skipped',
   '對手跳過，存了 {n} 點行程點': 'Opponent skipped and saved {n} action points',
@@ -321,6 +351,9 @@ export function rulesHTML_EN(R, C) {
     <li>Voters get harder to win later in the game. Get hit twice and a <b>sympathy vote</b> doubles your next gain.</li>
     <li>Card types: 📣 Attack 👥 Summon ✨ Magic 🪤 Trap (set face down, triggered by your opponent) 🌀 Status 🎪 Venue.</li>
     <li><b>Play face down</b>: tap a card and choose "Play face down" to declare it as any card (you pay the declared cost). Tell the truth or bluff. It counts as your card for the turn.</li>
+    <li><b>Campaign strategy</b>: at the start, pick 1 of 3 strategies. It lasts the whole game and both picks are revealed.</li>
+    <li><b>Venue events</b>: at the start of rounds 3, 6 and 9 a city-wide event is revealed (a typhoon day off, a New Year's Eve concert…). It lasts 3 rounds and affects both sides.</li>
+    <li><b>Combos</b>: the small icon at a card's top right is its series (📱 Online, 👟 Grassroots, 📑 Staff). Play a magic card, then a card of the same series in the same turn, to win 2 extra voters and +10 hype.</li>
     <li><b>Challenge</b>: when your opponent plays face down, you have ${R.respondSeconds} seconds to decide. Challenging costs 1 action point next turn. Catch a bluff and they lose ${R.bluffPenalty} supporters and ${R.caughtVoice} hype, and the effect is cancelled. Guess wrong and you lose ${R.wrongChallenge} supporters.</li>
   </ul>`;
 }

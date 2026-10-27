@@ -10,7 +10,7 @@ time.sleep(1)
 FAKE = """(async () => {
   const fx = await import('./js/fx.js');
   const P = (st, sm, tr) => ({ statuses: st.map((id) => ({ id, turns: 2 })), summons: sm, traps: tr, supporters: 20, voice: 50, hand: [] });
-  window.__fake = { field: { owner: 'blue', turns: 2 }, players: {
+  window.__fake = { field: null, venue: null, round: 3, players: {
     blue: P(['encircle', 'question', 'burst'], [{ name: '小編團', turns: 3, perTurn: 3 }, { name: '青年軍', turns: 2, perTurn: 3 }], [{ id: 's_rain', name: '下雨了', fx: {} }, { id: 's_flip', name: '跑票', fx: {} }]),
     green: P(['deflect', 'gaffe', 'exposed', 'sympathy', 'ultBoost', 'reflect'], [{ name: '市政團隊', turns: 3, perTurn: 3 }], [{ id: 's_flip', name: '跑票', fx: {} }]) } };
   fx.syncBoard(window.__fake, 'blue', 'green');
@@ -25,18 +25,25 @@ try:
             ctx = b.new_context(viewport={"width": w, "height": h}, device_scale_factor=dpr, has_touch=touch, is_mobile=touch and w < 600, locale="zh-TW")
             pg = ctx.new_page(); pg.on("pageerror", lambda e: errs.append(str(e)))
             pg.goto("http://localhost:8768/index.html"); pg.evaluate("localStorage.setItem('bg_seen_help','1')"); pg.reload(); pg.wait_for_timeout(800)
-            pg.click(".pick-btn.blue"); pg.wait_for_timeout(300); pg.click("#m-ai")
+            pg.click(".pick-btn.blue"); pg.wait_for_timeout(300); pg.click("#m-ai"); pg.wait_for_timeout(500)
+            pg.screenshot(path=f"{OUT}/{name}_policy.png")
+            pg.locator(".policy-item").first.click()
             for _ in range(40):
                 if pg.evaluate("!document.querySelector('#end-btn').disabled"): break
                 pg.wait_for_timeout(400)
             pg.wait_for_timeout(1500)
             pg.evaluate(FAKE); pg.wait_for_timeout(1200)
             pg.screenshot(path=f"{OUT}/{name}_persist.png")
+            for vid in ["v_typhoon", "v_newyear", "v_mrt", "v_artnight", "v_meme", "v_debate", "v_market"]:
+                pg.evaluate(f"window.__fake.venue = {{ id: '{vid}', until: 6 }}; window.__fake.field = null; window.__fx.syncBoard(window.__fake, 'blue', 'green')")
+                pg.wait_for_timeout(900)
+                pg.screenshot(path=f"{OUT}/{name}_venue_{vid}.png")
+            pg.evaluate("window.__fake.venue = null; window.__fake.field = { owner: 'blue', turns: 2 }; window.__fx.syncBoard(window.__fake, 'blue', 'green')")
             # 單次效果
             shots = [("pull", "{type:'pull', side:'blue', n:9}", 450), ("poach", "{type:'poach', side:'green', n:5}", 450),
                      ("rain", "{type:'trap', side:'green', trap:'rain'}", 1000), ("ult_birds", "{type:'ult', side:'green', ult:'u_birds'}", 700),
                      ("ult_shield", "{type:'ult', side:'green', ult:'u_shield'}", 500), ("status", "{type:'status', side:'green', status:'gaffe'}", 300),
-                     ("buzz", "{type:'play', side:'blue', card:'s_buzz'}", 400), ("staff", "{type:'play', side:'blue', card:'s_staff'}", 450)]
+                     ("buzz", "{type:'play', side:'blue', card:'s_buzz'}", 400), ("staff", "{type:'play', side:'blue', card:'s_staff'}", 450), ("combo", "{type:'combo', side:'blue', tag:'net'}", 350)]
             for nm, ev, wait in shots:
                 pg.evaluate(f"(async () => {{ const e = await import('./js/engine.js'); window.__fx.playFx({ev}, {{ me: 'blue', opp: 'green', card: (id) => e.CARD_BY_ID[id] }}); }})()")
                 pg.wait_for_timeout(wait)

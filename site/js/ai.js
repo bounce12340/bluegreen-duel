@@ -4,14 +4,30 @@
 // - 質疑時可以另外傳入 Jev 對「這次像不像吹牛」的判斷（jevBluff），和歷史紀錄加權合併。
 import {
   playCard, canPlay, cardCost, availableUlts, canBurst, enterBurst, useUlt, endTurn, neutral, hasStatus, decay,
-  rand, RULES, CARD_BY_ID, canDeclareAny, canDeclare, declareCard, declarableCards, respond,
+  rand, RULES, CARD_BY_ID, canDeclareAny, canDeclare, declareCard, declarableCards, respond, choosePolicy,
 } from './engine.js';
+import { COMBO_BONUS } from './cards.js';
+
+// 競選策略：依粗估價值挑一張（同分隨機）。mode 'random' 給平衡模擬量測每張策略的強度用
+// 權重來自平衡模擬（雙方隨機選策略時各策略的勝率）
+const POLICY_WEIGHT = { p_crowd: 2.08, p_turnout: 2.15, p_debater: 1.95, p_online: 1.95, p_grassroots: 2.05, p_early: 1.98, p_data: 2, p_steady: 1.95 };
+export function aiChoosePolicy(s, side, { mode = 'best' } = {}) {
+  const offers = s.offers[side];
+  if (!offers || !offers.length || s.players[side].policy) return null;
+  const id = mode === 'random'
+    ? offers[Math.floor(rand(s) * offers.length)]
+    : offers.reduce((a, b) => ((POLICY_WEIGHT[b] || 1) + rand(s) * 0.3 > (POLICY_WEIGHT[a] || 1) + rand(s) * 0.3 ? b : a));
+  choosePolicy(s, side, id);
+  return id;
+}
+// 連擊：這回合已打過同系列魔法卡，主牌多一份連擊價值
+const comboValue = (s, c) => (c.type !== 'magic' && c.combo && s.comboTag === c.combo ? COMBO_BONUS.pull + COMBO_BONUS.voice * 0.06 + 0.5 : 0);
 
 function cardValue(s, side, c) {
   const me = s.players[side];
   const opp = s.players[side === 'blue' ? 'green' : 'blue'];
   const fx = c.fx;
-  let v = 0;
+  let v = comboValue(s, c);
   if (fx.pull) v += Math.min(fx.pull * decay(s.round), neutral(s));
   if (fx.poach) v += Math.min(fx.poach, opp.supporters) * 1.8;
   if (fx.voice) v += fx.voice / 10;
@@ -94,6 +110,7 @@ export function challengeRateFromHistory(profile) {
 // 回傳這回合做了哪些動作（給畫面逐步播放用）。profiles：{ blue, green } 各自記錄對手
 export function aiTakeTurn(s, side, { autoEnd = true, profiles = null } = {}) {
   const actions = [];
+  if (s.phase === 'policy') return actions;
   const oppSide = side === 'blue' ? 'green' : 'blue';
   for (let guard = 0; guard < 14; guard++) {
     const a = aiStep(s, side, profiles && profiles[side]);
@@ -123,11 +140,13 @@ export function aiStep(s, side, profile = null, { ease = 0 } = {}) {
     return { kind: 'burst' };
   }
   const me = s.players[side];
-  // 魔法卡不佔回合，有用就先用
-  for (const c of me.hand) {
-    if (c.type !== 'magic' || !canPlay(s, side, c.uid)) continue;
-    if (cardValue(s, side, c) >= 2) { playCard(s, side, c.uid); return { kind: 'play', uid: c.uid, id: c.id }; }
-  }
+  // 魔法卡不佔回合，有用就先用；手上有同系列、打完魔法還付得起的主牌時（可以連擊）更優先
+  const magics = me.hand.filter((c) => c.type === 'magic' && canPlay(s, side, c.uid)).map((c) => {
+    const left = me.ap - cardCost(s, side, c) + (c.fx.ap || 0);
+    const combo = c.combo && me.hand.some((m) => m.type !== 'magic' && m.combo === c.combo && cardCost(s, side, m) <= left);
+    return { c, v: cardValue(s, side, c) + (combo ? 2 : 0) };
+  }).sort((a, b) => b.v - a.v);
+  if (magics.length && magics[0].v >= 2) { const c = magics[0].c; playCard(s, side, c.uid); return { kind: 'play', uid: c.uid, id: c.id }; }
   let best = bestMainCard(s, side);
   // 放水：有一定機率改出隨便一張打得出的牌，而且這回合不蓋牌
   if (ease > 0 && best && rand(s) < 0.12 * ease) {

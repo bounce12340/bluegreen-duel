@@ -4,7 +4,7 @@
 // 休眠時記憶體會被清掉，所以整局狀態每次都寫進 storage，醒來再讀回來。
 import { DurableObject } from 'cloudflare:workers';
 import {
-  createGame, playCard, endTurn, useUlt, enterBurst, takeEvents, finishByCount,
+  createGame, playCard, endTurn, useUlt, enterBurst, takeEvents, finishByCount, choosePolicy,
   declareCard, respond, hasStatus, RULES,
 } from '../../site/js/engine.js';
 import { checkName, cleanName } from '../../site/js/names.js';
@@ -16,6 +16,7 @@ const MAX_ROOMS = 200;
 const TURN_MS = 30_000;           // 一回合只出一張牌，30 秒
 const GRACE_MS = 1_000;            // 截止前 1 秒內送出的動作仍算數
 const RESPOND_MS = RULES.respondSeconds * 1000; // 對手決定要不要質疑的時間（出牌方的回合計時暫停）
+const POLICY_MS = RULES.policySeconds * 1000;    // 開局選競選策略的時間，時間到自動選第一張
 const DISCONNECT_MS = 30_000;      // 斷線超過 30 秒判負
 const GAME_MAX_MS = 20 * 60_000;   // 單局最長 20 分鐘
 const WAIT_ROOM_MS = 10 * 60_000;  // 開房後等朋友最多 10 分鐘
@@ -630,9 +631,10 @@ export class Room extends DurableObject {
     this.r.status = 'playing';
     // 反應時間紀錄（機器人判斷用）：輪到某一方可以動作的時間點，以及每個動作花了多久
     this.r.rt = { blue: [], green: [] };
-    this.r.actStart = { blue: 0, green: 0, [this.r.state.current]: now };
+    this.r.actStart = { blue: 0, green: 0 };
     this.r.timeouts = { blue: 0, green: 0 };
-    this.r.turnDeadline = now + TURN_MS;
+    this.r.turnDeadline = now + POLICY_MS; // 先選競選策略
+    this.r.policyDeadline = now + POLICY_MS;
     this.r.endAt = now + GAME_MAX_MS;
   }
 
@@ -651,7 +653,12 @@ export class Room extends DurableObject {
     opp.hand = opp.hand.map(() => ({ hidden: true }));
     if (!hasStatus(opp, 'exposed')) opp.traps = opp.traps.map(() => ({ hidden: true }));
     if (s.pending && s.pending.side !== side) delete s.pending.cardId;
-    return { ...base, state: s, respondDeadline: s.pending ? r.respondDeadline : null };
+    // 選策略階段：看不到對手可選的策略，也看不到對手選了哪張（只知道選好了沒）
+    if (s.phase === 'policy') {
+      delete s.offers[other(side)];
+      opp.policy = opp.policy ? 'chosen' : null;
+    } else delete s.offers;
+    return { ...base, state: s, respondDeadline: s.pending ? r.respondDeadline : null, policyDeadline: s.phase === 'policy' ? r.policyDeadline : null };
   }
 
   filterEvents(events, side) {
@@ -691,6 +698,16 @@ export class Room extends DurableObject {
     const now = Date.now();
     const turnBefore = s.turnIndex;
 
+    // 開局選競選策略（雙方同時選）
+    if (m.t === 'policy') {
+      if (s.phase !== 'policy' || now > r.policyDeadline + GRACE_MS) return;
+      if (!choosePolicy(s, side, String(m.id))) return ws.send(JSON.stringify({ t: 'error', msg: '這個動作現在不能做' }));
+      if (s.phase === 'play') this.policiesDone(now);
+      await this.afterChange(turnBefore);
+      return;
+    }
+    if (s.phase === 'policy') return;
+
     // 對手回應蓋牌宣告（不是自己的回合也能送）
     if (m.t === 'respond') {
       if (!s.pending || s.pending.side === side || now > r.respondDeadline + GRACE_MS) return;
@@ -717,6 +734,14 @@ export class Room extends DurableObject {
     this.recordReaction(side, now);
     if (m.t === 'declare' && r.actStart) r.actStart[other(side)] = now; // 對手開始想要不要質疑
     await this.afterChange(turnBefore);
+  }
+
+  // 雙方都選好策略：開始第一回合的計時
+  policiesDone(now) {
+    const r = this.r;
+    r.turnDeadline = now + TURN_MS;
+    r.policyDeadline = 0;
+    if (r.actStart) r.actStart[r.state.current] = now;
   }
 
   // 記一個動作的反應時間；同一回合的下一個動作從現在開始算
@@ -792,6 +817,11 @@ export class Room extends DurableObject {
       if (gone) {
         s.over = true; s.winner = other(gone); s.reason = '對手未連線或斷線超過 30 秒';
         s.events.push({ type: 'gameOver', winner: s.winner });
+      } else if (s.phase === 'policy') {
+        if (now >= r.policyDeadline + GRACE_MS) {
+          for (const sd of ['blue', 'green']) if (!s.players[sd].policy) choosePolicy(s, sd, s.offers[sd][0]);
+          this.policiesDone(now);
+        }
       } else if (s.pending && now >= r.respondDeadline + GRACE_MS) {
         respond(s, other(s.pending.side), false);
         s.events.push({ type: 'timeout', side: other(s.current), msg: '沒有回應，視同放行' });

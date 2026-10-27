@@ -34,6 +34,11 @@ def dismiss_help(pg):
 def take_turn(pg):
     """出一張能出的牌（一回合一張，打完自動換人）；沒有就跳過。點擊和重繪可能撞到，所以都包 try。"""
     dismiss_help(pg)
+    try:
+        if pg.locator(".policy-item").first.is_visible():
+            pg.locator(".policy-item").first.click(timeout=2000); return
+    except Exception:
+        pass
     if pg.is_visible("#m-pass"):
         pg.click("#m-pass"); return
     try:
@@ -78,7 +83,7 @@ with sync_playwright() as p:
         if a.is_visible("#m-again") or g.is_visible("#m-again"):
             break
         for pg in (a, g):
-            if pg.is_visible("#m-pass") or pg.evaluate("!document.querySelector('#end-btn').disabled"):
+            if pg.is_visible("#m-pass") or pg.locator(".policy-item").first.is_visible() or pg.evaluate("!document.querySelector('#end-btn').disabled"):
                 take_turn(pg)
         if turn == 3 and not reloaded:
             reloaded = True

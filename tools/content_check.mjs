@@ -4,9 +4,9 @@
 // - 對稱：每張卡「酸到哪一邊 × 有多酸」加總，比較藍綠兩邊被酸的總量
 // - Jev 呼叫失敗：視為「沒檢查到」，印出警告，不當成合格或不合格
 import { writeFileSync } from 'node:fs';
-import { CARDS, ULTS } from '../site/js/cards.js';
+import { CARDS, ULTS, POLICIES, VENUES } from '../site/js/cards.js';
 import { CHATTER, TONE_TAG, CHATTER_EN, TONE_TAG_EN } from '../site/js/chatter.js';
-import { CARD_EN, ULT_EN } from '../site/js/i18n.js';
+import { CARD_EN, ULT_EN, POLICY_EN, VENUE_EN } from '../site/js/i18n.js';
 import { judgeCard, CONTENT_RULES, NEWS_RULES, JEV_MODEL } from '../worker/src/jev.js';
 import { NEWS_CARDS } from '../site/js/news_cards.js';
 
@@ -62,6 +62,16 @@ for (const [kind, lines] of Object.entries(CHATTER_EN)) {
     name: `crowd comments (${kind}, English)`, belongs_to: 'shared（雙方共用）', kind: 'anonymous crowd comments shown during play',
     comments: lines.map(([tone, text]) => `${TONE_TAG_EN[tone]} ${text}`),
   } });
+}
+
+// 競選策略與場地事件（雙方共用，中英文都查）
+for (const x of POLICIES) {
+  items.push({ id: x.id, card: { name: x.name, belongs_to: sideLabel.shared, kind: 'campaign strategy (generic play style, not any candidate\'s platform)', effect: x.text } });
+  const e = POLICY_EN[x.id]; if (e) items.push({ id: `${x.id}_en`, card: { name: e.name, belongs_to: sideLabel.shared, kind: 'campaign strategy (generic play style, not any candidate\'s platform)', effect: e.text } });
+}
+for (const x of VENUES) {
+  items.push({ id: x.id, card: { name: x.name, belongs_to: sideLabel.shared, kind: 'city-wide venue event affecting both sides', effect: x.text } });
+  const e = VENUE_EN[x.id]; if (e) items.push({ id: `${x.id}_en`, card: { name: e.name, belongs_to: sideLabel.shared, kind: 'city-wide venue event affecting both sides', effect: e.text } });
 }
 
 const results = [];

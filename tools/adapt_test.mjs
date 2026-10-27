@@ -1,7 +1,7 @@
 // 電腦對手適應力測試：讓電腦（藍）對上四種固定風格的玩家（綠），比較「有記憶（跨局保留紀錄）」與「沒記憶」。
 // 用法：node tools/adapt_test.mjs [局數]
 import * as E from '../site/js/engine.js';
-import { aiStep, respondDecision, observeEvents, newProfile } from '../site/js/ai.js';
+import { aiStep, respondDecision, observeEvents, newProfile, aiChoosePolicy } from '../site/js/ai.js';
 
 const STYLES = {
   老實人: { declareHonest: 0.4, bluff: 0, challenge: 0 },
@@ -38,6 +38,7 @@ function run(styleName, learn, N) {
   for (let i = 0; i < N; i++) {
     if (!learn) profile = newProfile();
     const s = E.createGame({ seed: 90000 + i });
+    aiChoosePolicy(s, 'blue'); aiChoosePolicy(s, 'green');
     while (!s.over) {
       const side = s.current;
       if (side === 'blue') {

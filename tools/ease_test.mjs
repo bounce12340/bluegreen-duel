@@ -1,11 +1,12 @@
 // 難度檢查：全力電腦 vs 放水電腦（ease 0～3），放水越多應該輸越多。用法：node tools/ease_test.mjs [局數]
 import { createGame, endTurn, respond } from '../site/js/engine.js';
-import { aiStep, aiRespond, newProfile, EASE_MAX } from '../site/js/ai.js';
+import { aiStep, aiRespond, newProfile, EASE_MAX, aiChoosePolicy } from '../site/js/ai.js';
 const N = Number(process.argv[2] || 600);
 for (let ease = 0; ease <= EASE_MAX; ease++) {
   let strongWins = 0;
   for (let i = 0; i < N; i++) {
     const s = createGame({ seed: 5000 + i });
+    aiChoosePolicy(s, 'blue'); aiChoosePolicy(s, 'green');
     const strong = i % 2 ? 'blue' : 'green'; // 輪流換邊，抵消陣營差異
     const easeOf = (side) => (side === strong ? 0 : ease);
     const prof = { blue: newProfile(), green: newProfile() };

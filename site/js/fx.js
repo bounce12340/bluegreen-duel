@@ -13,7 +13,7 @@ const SUMMON_ICON = {
   小編團: '💻', 'Social Team': '💻', 青鳥群: '🐦', 'Bluebird Flock': '🐦', 市政團隊: '👷', 'City Team': '👷',
 };
 
-let battle, layer, stage, rain;
+let battle, layer, stage, rain, venueFx;
 const box = { me: {}, opp: {} };   // 每一方：aura（狀態）、troops（召喚）、traps（蓋牌）
 let last = null;                   // 上一次同步的參數，視窗改變大小時重新定位用
 
@@ -39,7 +39,8 @@ export function initFx() {
     conf.appendChild(c);
   }
   rain = el('rain-fx hidden');
-  layer.append(stage, rain);
+  venueFx = el('venue-fx hidden');
+  layer.append(venueFx, stage, rain);
   for (const k of ['me', 'opp']) {
     for (const part of ['aura', 'troops', 'traps']) {
       box[k][part] = el(`fx-${part} ${k}`);
@@ -69,7 +70,7 @@ const mascotOf = (key) => rectOf(key === 'me' ? '#me-mascot' : '#opp-mascot');
 export function syncBoard(game, me, opp, opts = {}) {
   if (!layer) return;
   last = [game, me, opp, opts];
-  if (!game) { for (const k of ['me', 'opp']) for (const p of Object.values(box[k])) p.innerHTML = ''; setField(null); return; }
+  if (!game) { for (const k of ['me', 'opp']) for (const p of Object.values(box[k])) p.innerHTML = ''; setField(null); setVenue(null); return; }
   const keys = { [me]: 'me', [opp]: 'opp' };
   for (const side of [me, opp]) {
     const key = keys[side];
@@ -103,6 +104,7 @@ export function syncBoard(game, me, opp, opts = {}) {
     });
   }
   setField(game.field ? game.field.owner : null);
+  setVenue(game.venue ? game.venue.id : null);
 }
 
 // 依 key 增減子元素：新的播進場動畫，消失的播退場動畫
@@ -202,6 +204,8 @@ export function playFx(ev, ctx) {
       case 'ult': ultFx(ev.ult, key(ev.side), key(other(ev.side)), ev.side); break;
       case 'challenge': stamp(key(ev.caught ? other(ev.side) : ev.side), ev.caught ? '🚨' : '❌'); break;
       case 'draw': drawCard(key(ev.side), ev.side); break;
+      case 'combo': comboBurst(key(ev.side), ev.side); break;
+      case 'venue': spotlights(); break;
       default: break;
     }
   } catch (e) { console.warn('特效播放失敗', e); }
@@ -364,4 +368,32 @@ export function victory(winKey, side) {
 }
 export function clearVictory() {
   for (const sel of ['#me-mascot', '#opp-mascot']) { const m = $(sel); if (m) m.classList.remove('champion', 'defeated'); }
+}
+
+// 場地事件的環境效果：整局背景跟著事件變化（颱風、煙火、捷運、夜間燈串、迷因、辯論直播、市集旗子）
+let venueNow = null;
+const VENUE_HTML = {
+  v_typhoon: '<i class="wind"></i><span class="vi">🌀</span>',
+  v_newyear: '<i class="fw a"></i><i class="fw b"></i><i class="fw c"></i>',
+  v_mrt: '<span class="train">🚇</span>',
+  v_artnight: '<i class="lights"></i>',
+  v_meme: '<span class="m a">📱</span><span class="m b">💬</span><span class="m c">🔁</span><span class="m d">😂</span>',
+  v_debate: '<span class="live">● LIVE</span>',
+  v_market: '<i class="flags"></i><span class="vi">🛍️</span>',
+};
+function setVenue(id) {
+  if (id === venueNow) return;
+  venueNow = id;
+  venueFx.className = `venue-fx ${id || 'hidden'}`;
+  venueFx.innerHTML = id ? (VENUE_HTML[id] || '') : '';
+}
+
+// 連擊：大字「連擊！」＋火花
+function comboBurst(k, side) {
+  const h = body(k);
+  pop(`combo-pop ${side}`, '<b>COMBO!</b>', { x: h.x, y: h.y - h.h * 0.45 }, 1300, h.h);
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    fly('✨', h, { x: h.x + Math.cos(a) * h.h * 0.5, y: h.y + Math.sin(a) * h.h * 0.4 }, { dur: 700, arc: 0 });
+  }
 }

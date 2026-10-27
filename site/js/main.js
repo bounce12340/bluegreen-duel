@@ -1,11 +1,12 @@
 import { CONFIG } from './config.js';
-import { ULTS, STATUS_INFO, SIDE_NAME, SIDE_FULL } from './cards.js';
+import { ULTS, STATUS_INFO, SIDE_NAME, SIDE_FULL, COMBO_INFO, COMBO_BONUS } from './cards.js';
 import {
   RULES, createGame, playCard, canPlay, cardCost, endTurn, takeEvents, availableUlts,
   canBurst, enterBurst, useUlt, neutral, hasStatus,
   CARD_BY_ID, canDeclareAny, canDeclare, declareCard, declarableCards, respond,
+  choosePolicy, POLICY_BY_ID, VENUE_BY_ID,
 } from './engine.js';
-import { aiStep, respondDecision, newProfile, observeEvents, EASE_NAMES, EASE_MAX } from './ai.js';
+import { aiStep, respondDecision, newProfile, observeEvents, EASE_NAMES, EASE_MAX, aiChoosePolicy } from './ai.js';
 import { createCrowd } from './crowd.js';
 import { initFx, syncBoard, playFx, victory, clearVictory } from './fx.js';
 import { unlock, sfx, isMuted, setMuted, setRemoteVolume } from './sound.js';
@@ -103,6 +104,11 @@ async function init() {
   $('#end-btn').addEventListener('click', () => { if (isMyTurn()) endMyTurn(); });
   $('#ult-btn').addEventListener('click', openUlt);
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && !$('#modal').dataset.locked) closeModal(); });
+  $('#battle').addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-polinfo]');
+    const p = chip && POLICY_BY_ID[chip.dataset.polinfo];
+    if (p) toast(t('{icon} {name}：{text}', { icon: p.icon, name: p.name, text: p.text }));
+  });
   updateMuteIcon();
   initFx();
   setupEncoreRemote();
@@ -150,13 +156,16 @@ function setupBattle(side) {
   crowd.start();
 }
 
-function maybeShowHelp() {
+// 第一次玩先看規則；回傳有沒有跳出規則（then：關掉規則後要做的事）
+function maybeShowHelp(then) {
   let seen = false;
   try { seen = localStorage.getItem('bg_seen_help') === '1'; } catch { /* 忽略 */ }
   if (!seen) {
-    openRules(true);
+    openRules(true, then);
     try { localStorage.setItem('bg_seen_help', '1'); } catch { /* 忽略 */ }
+    return true;
   }
+  return false;
 }
 
 function startGame(side) {
@@ -170,12 +179,42 @@ function startGame(side) {
   game = createGame({ seed: Math.floor(Math.random() * 2 ** 31), disabledCards: disabled, today: taipeiToday() });
   gameStats = { skips: 0, timeouts: 0, startedAt: Date.now() };
   setupBattle(side);
+  aiChoosePolicy(game, opp);
   takeEvents(game); // 開局抽牌的事件不用播
   render();
-  toast(t(game.first === me ? '你是先手！' : '對手先手，你多拿 1 張牌'), me, true);
-  if (easeNotice) { const n = easeNotice; easeNotice = ''; setTimeout(() => toast(n, opp, true), 1400); }
-  maybeShowHelp();
-  nextPhase();
+  const myGen = gen;
+  const pick = () => openPolicyPick((id) => {
+    if (myGen !== gen || !choosePolicy(game, me, id)) return;
+    closeModal();
+    toast(t(game.first === me ? '你是先手！' : '對手先手，你多拿 1 張牌'), me, true);
+    if (easeNotice) { const n = easeNotice; easeNotice = ''; setTimeout(() => toast(n, opp, true), 1400); }
+    nextPhase();
+  });
+  if (!maybeShowHelp(pick)) pick();
+}
+
+// 開局選競選策略。onPick(id)；連線時 deadlineAt 倒數，時間到由伺服器自動選第一張
+function openPolicyPick(onPick, deadlineAt = 0) {
+  const offers = (game.offers && game.offers[me]) || [];
+  const items = offers.map((id) => {
+    const p = POLICY_BY_ID[id];
+    return `<button class="policy-item" data-pick="${id}"><span class="ico">${p.icon}</span><b>${esc(p.name)}</b><span>${esc(p.text)}</span></button>`;
+  }).join('');
+  openModal(`<h2>${t('選擇競選策略')}</h2>
+    <p class="small">${t('整局有效，雙方選好後會公開。')}</p>
+    <div class="policy-list">${items}</div>
+    ${deadlineAt ? `<div class="count-ring small-ring" id="m-pcount">${RULES.policySeconds}</div>` : ''}`, { locked: true });
+  for (const b of document.querySelectorAll('[data-pick]')) b.onclick = () => { sfx.card(); onPick(b.dataset.pick); };
+  if (deadlineAt) {
+    clearInterval(respondTimer);
+    respondTimer = setInterval(() => {
+      const el = $('#m-pcount');
+      if (!el) { clearInterval(respondTimer); return; }
+      const left = Math.max(0, Math.ceil((deadlineAt - (Date.now() + clockOffset)) / 1000));
+      el.textContent = left;
+      el.style.setProperty('--p', `${(left / RULES.policySeconds) * 100}%`);
+    }, 250);
+  }
 }
 
 function nextPhase() {
@@ -184,7 +223,7 @@ function nextPhase() {
   else runAI();
 }
 
-const isMyTurn = () => game && !game.over && !busy && !animating && !game.pending && game.current === me
+const isMyTurn = () => game && !game.over && game.phase !== 'policy' && !busy && !animating && !game.pending && game.current === me
   && (mode === 'local' || (sock && sock.readyState === 1));
 
 // ── 畫面 ─────────────────────────────────
@@ -203,6 +242,8 @@ function infoHTML(side, mine) {
       : `<span class="chip bad">🔍${listJoin(shown.map(esc))}</span>`);
   }
   if (!mine) chips.push(`<span class="chip">${t('🂠手牌×{n}', { n: p.hand.length })}</span>`);
+  const pol = p.policy && (mine || game.phase !== 'policy') && POLICY_BY_ID[p.policy]; // 雙方選好前不顯示對手的策略
+  if (pol) chips.unshift(`<span class="chip pol" data-polinfo="${pol.id}">${pol.icon}${esc(pol.name)}</span>`);
   return `
     ${names[side] ? `<div class="small nick">👤 ${esc(names[side])}${mine ? t('（你）') : ''}</div>` : ''}
     <div class="row"><span class="who">${SIDE_NAME[side]}<span class="small">${paren(SIDE_FULL[side])}</span></span>
@@ -230,8 +271,13 @@ function render() {
   fb.classList.toggle('hidden', !night);
   if (night) fb.textContent = t('🎪 {who}造勢晚會・剩 {n} 回合', { who: t(game.field.owner === me ? '我方' : '對手'), n: game.field.turns });
 
+  const vb = $('#venue-banner');
+  const ven = game.venue && VENUE_BY_ID[game.venue.id];
+  vb.classList.toggle('hidden', !ven);
+  if (ven) vb.textContent = t('{icon} {name}・剩 {n} 回合', { icon: ven.icon, name: ven.name, n: Math.max(1, game.venue.until - game.round) });
+
   // 行程點
-  const myTurn = game.current === me && !game.over;
+  const myTurn = game.current === me && !game.over && game.phase !== 'policy';
   const apNow = Math.max(mp.ap, 0);
   const dots = Array.from({ length: RULES.apCap }, (_, i) => `<i class="${i < apNow ? '' : 'used'}"></i>`).join('');
   $('#ap').innerHTML = `<span class="ap-label">${t('行程點 {a}/{c}', { a: apNow, c: RULES.apCap })}</span><span class="ap-dots">${dots}</span>`
@@ -249,13 +295,14 @@ function render() {
     const ok = myTurn && !busy && canPlay(game, me, c.uid);
     const cost = cardCost(game, me, c);
     el.className = `card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity} ${ok ? 'ok' : 'cant'}`;
+    if (myTurn && c.combo && game.comboTag === c.combo) el.classList.add('combo-ready');
     if (!seenUids.has(c.uid)) {
       seenUids.add(c.uid);
       el.classList.add('drawn');
       el.style.animationDelay = `${fresh++ * 0.12}s`;
     }
     el.innerHTML = `<span class="art-wrap"><img class="art" src="${art(c.id)}" alt="" loading="lazy" draggable="false">
-        <span class="cost ${cost > c.cost ? 'up' : ''}">${cost}</span><span class="type">${TYPE[c.type][0]}</span></span>
+        <span class="cost ${cost > c.cost ? 'up' : cost < c.cost ? 'down' : ''}">${cost}</span><span class="type">${TYPE[c.type][0]}</span>${c.combo ? `<span class="series">${COMBO_INFO[c.combo].icon}</span>` : ''}</span>
       <span class="nm">${c.name}${RAR[c.rarity] ? `<span class="rar">${RAR[c.rarity]}</span>` : ''}</span><span class="tx">${c.hand || c.short || c.text}</span>`;
     bindCardPointer(el, c, ok);
     hand.appendChild(el);
@@ -334,6 +381,7 @@ function castFor(ev) {
       : { side: other(ev.side), card: C[ev.asId], label: t('質疑失敗！是真的') };
   }
   if (ev.type === 'ult') return { side: ev.side, ult: nameEN(ev.name), label: t(ev.side === me ? '你的大絕招' : '對手的大絕招') };
+  if (ev.type === 'venue' && VENUE_BY_ID[ev.id]) return { side: opp, venue: VENUE_BY_ID[ev.id], label: t('場地事件') };
   return null;
 }
 
@@ -361,6 +409,7 @@ function showCast(c) {
     const sideCls = c.card && c.card.side !== 'shared' ? c.card.side : c.side;
     let body;
     if (c.facedown) body = `<div class="cast-card facedown ${c.side}"><div class="back">🂠</div><div class="nm">？？？</div></div>`;
+    else if (c.venue) body = `<div class="cast-card venue-card"><div class="venue-ico">${c.venue.icon}</div><div class="nm">${esc(c.venue.name)}</div><div class="tx">${esc(c.venue.text)}</div><div class="small">${t('持續 3 回合・雙方都受影響')}</div></div>`;
     else if (c.ult) body = `<div class="cast-card ult ${c.side}"><img class="mascot-art" src="assets/${c.side}_win.webp" alt=""><div class="nm">${c.ult}</div></div>`;
     else body = `<div class="cast-card ${sideCls} t-${c.card.type} ${c.card.rarity}"><img class="art" src="${art(c.card.id)}" alt="">
       <div class="nm">${c.card.name}</div><div class="tx">${c.card.text}</div>${pttLine(c.card)}</div>`;
@@ -490,6 +539,19 @@ function fxEvent(ev) {
       case 'declare':
         sfx.card();
         break;
+      case 'combo': {
+        const info = COMBO_INFO[ev.tag];
+        sfx.ult();
+        toast(t('{who}連擊！{name}：多拉 {n} 人、聲量 +{v}', { who, name: info ? info.name : '', n: COMBO_BONUS.pull, v: COMBO_BONUS.voice }), ev.side, true);
+        chatter('bigPull');
+        break;
+      }
+      case 'policies': {
+        const mine = POLICY_BY_ID[ev[me]], theirs = POLICY_BY_ID[ev[opp]];
+        if (mine && theirs) toast(t('你的策略：{a}｜對手：{b}', { a: `${mine.icon}${mine.name}`, b: `${theirs.icon}${theirs.name}` }), me, true);
+        break;
+      }
+      case 'venueEnd': if (VENUE_BY_ID[ev.id]) toast(t('場地事件「{name}」結束', { name: VENUE_BY_ID[ev.id].name })); break;
       case 'pass':
         break; // 已用展示卡牌呈現
       case 'challenge': {
@@ -736,7 +798,7 @@ function openCard(uid) {
     <div class="big-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity}">
       <img class="art" src="${art(c.id)}" alt="">
       <div class="nm">${TYPE[c.type][0]} ${c.name}</div>
-      <div class="meta">${t('{type}卡・{rar}・行程點 {cost}', { type: t(TYPE[c.type][1]), rar: t(RAR_NAME[c.rarity]), cost })}${cost > c.cost ? t('（被追問 +1）') : ''}${t(c.type === 'magic' ? '・不佔回合' : '・打出後換對手')}</div>
+      <div class="meta">${t('{type}卡・{rar}・行程點 {cost}', { type: t(TYPE[c.type][1]), rar: t(RAR_NAME[c.rarity]), cost })}${cost > c.cost ? t('（被追問 +1）') : ''}${t(c.type === 'magic' ? '・不佔回合' : '・打出後換對手')}${c.combo ? `・🔗${COMBO_INFO[c.combo].name}` : ''}</div>
       <div class="tx">${c.text}</div>
       ${pttLine(c)}
     </div>
@@ -984,9 +1046,10 @@ function openUlt() {
   $('#m-cancel').onclick = closeModal;
 }
 
-function openRules(first = false) {
+function openRules(first = false, then = null) {
   const ok = `<div class="btns"><button class="btn primary" id="m-ok">${t(first ? '開始！' : '知道了')}</button></div>`;
-  if (EN) { openModal(rulesHTML_EN(RULES, CONFIG) + ok, { pause: true }); $('#m-ok').onclick = closeModal; return; }
+  const done = () => { closeModal(); if (then) then(); };
+  if (EN) { openModal(rulesHTML_EN(RULES, CONFIG) + ok, { pause: true }); $('#m-ok').onclick = done; return; }
   openModal(`<h2>怎麼玩</h2>
     <ul>
       <li>場上有 100 位灰色<b>中間選民</b>，先拉到 <b>${RULES.winAt} 人（過半）</b>就贏；第 ${RULES.maxRounds} 回合結束時，支持者多的一方獲勝。</li>
@@ -999,9 +1062,12 @@ function openRules(first = false) {
       <li>卡牌：📣攻擊 👥召喚 ✨魔法 🪤陷阱（蓋著等對方觸發）🌀狀態 🎪場地。</li>
       <li><b>蓋牌宣告</b>：點手牌選「蓋牌宣告」，把牌蓋著打出並宣告成任何一張牌（行程點照宣告的付），可以說實話也可以吹牛。算這回合出的牌。</li>
       <li><b>質疑</b>：對手蓋牌宣告時你有 ${RULES.respondSeconds} 秒決定。質疑要付下回合行程點 -1：抓到吹牛，對手 -${RULES.bluffPenalty} 人、聲量 -${RULES.caughtVoice}，效果作廢；猜錯，你 -${RULES.wrongChallenge} 人。</li>
+      <li><b>競選策略</b>：開局從 3 張策略選 1 張，整局有效，選好後雙方公開。</li>
+      <li><b>場地事件</b>：第 3、6、9 回合開始時翻一張全場事件（例如颱風假、跨年晚會），持續 3 回合，雙方同時受影響。</li>
+      <li><b>連擊</b>：卡牌右上角的小圖示是系列（📱網路、👟基層、📑幕僚）。同一回合先打魔法卡、再打同系列的牌，額外拉 ${COMBO_BONUS.pull} 人、聲量 +${COMBO_BONUS.voice}。</li>
     </ul>
     <div class="btns"><button class="btn primary" id="m-ok">${first ? '開始！' : '知道了'}</button></div>`, { pause: true });
-  $('#m-ok').onclick = closeModal;
+  $('#m-ok').onclick = done;
 }
 
 function openPrivacy() {
@@ -1338,7 +1404,7 @@ function leaveOnline() {
   if (sock) { try { sock.close(1000, 'leave'); } catch { /* 忽略 */ } }
   if (lobbySock) { try { lobbySock.close(); } catch { /* 忽略 */ } }
   sock = null; lobbySock = null; roomCode = null; battleRoom = null; reconnectUntil = 0;
-  pendingUI = null; clearInterval(respondTimer);
+  pendingUI = null; policyUI = null; clearInterval(respondTimer);
   try { sessionStorage.removeItem('bg_room'); } catch { /* 忽略 */ }
 }
 
@@ -1371,7 +1437,7 @@ function onRoomMessage(data) {
     game.events = [];
     render();
     toast(t(game.first === me ? '你是先手！' : '對手先手，你多拿 1 張牌'), me, true);
-    maybeShowHelp();
+    if (game.phase !== 'policy') maybeShowHelp();
   }
   game = v.state;
   game.events = m.events || [];
@@ -1384,8 +1450,20 @@ function onRoomMessage(data) {
     if (!game.over) turnBanner(t(game.current === me ? '你的回合' : '對手回合'), t('第 {r} / {m} 回合', { r: Math.min(game.round, RULES.maxRounds), m: RULES.maxRounds }), game.current, game.current !== me);
   }
   startOnlineTimer();
+  syncPolicyUI(v.policyDeadline);
   syncPendingUI(v.respondDeadline);
   if (game.over && !resultShown) setTimeout(showResult, 2300);
+}
+
+// 連線：選策略階段的彈窗（自己還沒選＝選擇畫面；選好了＝等對手）
+let policyUI = null;
+function syncPolicyUI(policyDeadline) {
+  const want = !game || game.over || game.phase !== 'policy' ? null : game.players[me].policy ? 'wait' : 'pick';
+  if (want === policyUI) return;
+  if (policyUI) { clearInterval(respondTimer); closeModal(); }
+  policyUI = want;
+  if (want === 'pick') openPolicyPick((id) => send({ t: 'policy', id }), policyDeadline);
+  if (want === 'wait') openModal(`<h2>${t('等對手選策略…')}</h2><p class="small center">${t('雙方都選好就開始。')}</p>`, { locked: true });
 }
 
 // 依伺服器狀態開關質疑相關的彈窗
