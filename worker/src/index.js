@@ -1,4 +1,4 @@
-// 藍綠對決連線伺服器：Cloudflare Worker + Durable Objects（WebSocket 休眠 API）
+// 藍綠攻防戰連線伺服器：Cloudflare Worker + Durable Objects（WebSocket 休眠 API）
 // - Lobby（單一實例）：隨機配對、開房、房間數上限
 // - Room（一局一個）：伺服器權威，洗牌、抽牌、計時、結算都在這裡
 // 休眠時記憶體會被清掉，所以整局狀態每次都寫進 storage，醒來再讀回來。

@@ -851,9 +851,9 @@ function showResult() {
   }
   $('#m-home').onclick = goHome;
   $('#m-share').onclick = async () => {
-    const text = `我在《藍綠對決》用${SIDE_NAME[me]}打到 藍 ${b} : ${g} 綠，${title} 來挑戰：${location.href}`;
+    const text = `我在《藍綠攻防戰》用${SIDE_NAME[me]}打到 藍 ${b} : ${g} 綠，${title} 來挑戰：${location.href}`;
     try {
-      if (navigator.share) await navigator.share({ title: '藍綠對決', text });
+      if (navigator.share) await navigator.share({ title: '藍綠攻防戰', text });
       else { await navigator.clipboard.writeText(text); toast('已複製分享文字'); }
     } catch { /* 使用者取消 */ }
   };
@@ -996,9 +996,9 @@ function showWaitingRoom(code) {
     <p class="small center">朋友在首頁點任一角色 →「加入」輸入房號。10 分鐘內沒人加入會自動關閉。</p>
     <div class="btns"><button class="btn primary" id="m-share">分享房號</button><button class="btn" id="m-cancel">取消</button></div>`, { locked: true });
   $('#m-share').onclick = async () => {
-    const text = `來《藍綠對決》跟我對戰！房號 ${code}：${location.origin}`;
+    const text = `來《藍綠攻防戰》跟我對戰！房號 ${code}：${location.origin}`;
     try {
-      if (navigator.share) await navigator.share({ title: '藍綠對決', text });
+      if (navigator.share) await navigator.share({ title: '藍綠攻防戰', text });
       else { await navigator.clipboard.writeText(text); $('#m-share').textContent = '已複製'; }
     } catch { /* 使用者取消 */ }
   };

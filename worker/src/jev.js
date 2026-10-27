@@ -200,7 +200,7 @@ export async function judgeNickname(apiKey, nickname, url = JEV_URL) {
 
 // ── 3. 聯絡信箱分流 ───────────────────────────
 // 寄件人地址不送給 Jev，只送主旨與內文（截斷）。
-export const MAIL_CONTEXT = 'This email was sent to the public contact address of 藍綠對決, a free online political-satire card game about the 2026 Taipei mayoral race between 蔣萬安 (KMT) and 沈伯洋 (DPP). The game is not made by any candidate, party, or campaign.';
+export const MAIL_CONTEXT = 'This email was sent to the public contact address of 藍綠攻防戰, a free online political-satire card game about the 2026 Taipei mayoral race between 蔣萬安 (KMT) and 沈伯洋 (DPP). The game is not made by any candidate, party, or campaign.';
 export const MAIL_QUESTIONS = {
   asks_removal: { type: 'noul', instructions: 'Does `email` ask for the game, or something in it, to be taken down, removed, or changed?' },
   speaks_for_official: { type: 'noul', instructions: 'Does the writer of `email` say they represent a candidate, a campaign, a political party, a government agency, or the election commission?' },
@@ -216,7 +216,14 @@ export const MAIL_QUESTIONS = {
       false: 'Any money mentioned comes with no request to change the game\'s content.',
     },
   },
-  abusive: { type: 'noul', instructions: 'Does `email` insult or threaten the reader?' },
+  abusive: {
+    type: 'noul',
+    instructions: 'Is `email` abusive toward the reader?',
+    criteria: {
+      true: 'It insults or curses at the reader, uses slurs, or threatens violence or harassment.',
+      false: 'It is rude at most, or it firmly asks for something, including saying the writer will take legal action.',
+    },
+  },
 };
 // 判斷規則：任一緊急條件 ≥ 0.5 → 標「urgent」並轉寄作者；媒體來信也轉寄
 export function mailDecision(scores) {
@@ -243,7 +250,7 @@ export async function judgeMail(apiKey, subject, body, url = JEV_URL) {
 }
 
 // ── 4. 卡牌合規＋嘲諷對稱（部署前檢查用）─────────
-export const CONTENT_CONTEXT = 'This is one card from 藍綠對決, a political-satire card game about the 2026 Taipei mayoral race. 萬安號 is a cartoon mascot for 蔣萬安 (KMT, blue camp); 伯洋號 is a cartoon mascot for 沈伯洋 (DPP, green camp). "Blue" cards are played by the 蔣萬安 side and "green" cards by the 沈伯洋 side; "shared" cards can be played by either.';
+export const CONTENT_CONTEXT = 'This is one card from 藍綠攻防戰, a political-satire card game about the 2026 Taipei mayoral race. 萬安號 is a cartoon mascot for 蔣萬安 (KMT, blue camp); 伯洋號 is a cartoon mascot for 沈伯洋 (DPP, green camp). "Blue" cards are played by the 蔣萬安 side and "green" cards by the 沈伯洋 side; "shared" cards can be played by either.';
 export const CONTENT_QUESTIONS = {
   quotes_real_person: {
     type: 'noul',
