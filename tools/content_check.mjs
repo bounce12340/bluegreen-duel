@@ -5,6 +5,7 @@
 // - Jev 呼叫失敗：視為「沒檢查到」，印出警告，不當成合格或不合格
 import { writeFileSync } from 'node:fs';
 import { CARDS, ULTS } from '../site/js/cards.js';
+import { CHATTER, TONE_TAG } from '../site/js/chatter.js';
 import { judgeCard, CONTENT_RULES, JEV_MODEL } from '../worker/src/jev.js';
 
 const KEY = process.env.TYPESAFE_API_KEY;
@@ -19,11 +20,19 @@ if (!KEY) {
 
 const sideLabel = { blue: 'blue（蔣萬安陣營的卡）', green: 'green（沈伯洋陣營的卡）', shared: 'shared（雙方共用）' };
 const items = [
-  ...CARDS.map((c) => ({ id: c.id, card: { name: c.name, belongs_to: sideLabel[c.side], effect: c.text, flavor_text: c.flavor } })),
+  ...CARDS.map((c) => ({ id: c.id, card: { name: c.name, belongs_to: sideLabel[c.side], effect: c.text, flavor_text: `anonymous netizen comment: ${c.flavor}` } })),
   ...Object.entries(ULTS).flatMap(([side, list]) => list.map((u) => ({
     id: u.id, card: { name: u.name, belongs_to: sideLabel[side], kind: 'special move', effect: u.text },
   }))),
 ];
+
+// 群眾推文：每種情境一組，當成一張「卡」檢查（雙方通用，不屬於任何陣營）
+for (const [kind, lines] of Object.entries(CHATTER)) {
+  items.push({ id: `chatter_${kind}`, card: {
+    name: `crowd comments (${kind})`, belongs_to: 'shared（雙方共用）', kind: 'anonymous crowd comments shown during play',
+    comments: lines.map(([tone, text]) => `${TONE_TAG[tone]} ${text}`),
+  } });
+}
 
 const results = [];
 let failedCalls = 0;

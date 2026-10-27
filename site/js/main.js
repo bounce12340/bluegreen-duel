@@ -10,6 +10,7 @@ import { createCrowd } from './crowd.js';
 import { unlock, sfx, isMuted, setMuted } from './sound.js';
 import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
 import { checkName, cleanName, NAME_MAX } from './names.js';
+import { pickChatter, TONE_TAG } from './chatter.js';
 
 const $ = (sel) => document.querySelector(sel);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -302,7 +303,7 @@ function showCast(c) {
     if (c.facedown) body = `<div class="cast-card facedown ${c.side}"><div class="back">🂠</div><div class="nm">？？？</div></div>`;
     else if (c.ult) body = `<div class="cast-card ult ${c.side}"><img class="mascot-art" src="assets/${c.side}_win.webp" alt=""><div class="nm">${c.ult}</div></div>`;
     else body = `<div class="cast-card ${sideCls}"><img class="art" src="${art(c.card.id)}" alt="">
-      <div class="nm">${c.card.name}</div><div class="tx">${c.card.text}</div></div>`;
+      <div class="nm">${c.card.name}</div><div class="tx">${c.card.text}</div>${pttLine(c.card)}</div>`;
     box.innerHTML = `<div class="cast-label ${c.bad ? 'bad' : ''} ${c.side}">${c.label}</div>${body}`;
     box.className = `cast-${c.side === me ? 'me' : 'opp'}`;
     sfx.card();
@@ -317,6 +318,41 @@ function showCast(c) {
     box.onclick = finish;
     setTimeout(finish, 1500);
   });
+}
+
+// 卡牌台詞：匿名鄉民推文格式
+function pttLine(c) {
+  if (!c || !c.flavor) return '';
+  const tone = c.tone || 'push';
+  if (tone === 'threads') return threadsPost(c.flavor);
+  return `<div class="ptt"><span class="tag ${tone}">${TONE_TAG[tone]}</span><span class="id">鄉民</span>: <span class="msg">${c.flavor}</span></div>`;
+}
+// 脆文樣式（不使用任何平台標誌）：頭像、帳號、內文、愛心數
+const likes = () => (Math.random() < 0.3 ? Math.floor(Math.random() * 900) + 100 : Math.floor(Math.random() * 90) + 3);
+function threadsPost(text) {
+  return `<div class="threads"><span class="avatar"></span><div class="body"><span class="handle">脆友</span><span class="msg">${text}</span>
+    <span class="meta">♡ ${likes()}　💬 ${Math.floor(Math.random() * 30)}</span></div></div>`;
+}
+
+// 群眾推文泡泡：從群眾裡冒出來往上飄，同時最多 2 則
+function chatter(kind) {
+  const line = pickChatter(kind);
+  if (!line) return;
+  const box = $('#floats');
+  const live = box.querySelectorAll('.bubble');
+  if (live.length >= 2) live[0].remove();
+  const [tone, text] = line;
+  const el = document.createElement('div');
+  el.className = `bubble ${tone === 'threads' ? 'threads-bubble' : ''}`;
+  el.innerHTML = tone === 'threads'
+    ? `<span class="avatar"></span><span><b>脆友</b> ${text}</span>`
+    : `<span class="tag ${tone}">${TONE_TAG[tone]}</span>${text}`;
+  el.style.left = `${8 + Math.random() * 44}%`;
+  // 兩條跑道，避免兩則疊在一起
+  const lane = box.querySelectorAll('.bubble').length % 2;
+  el.style.top = `${42 + lane * 9 + Math.random() * 2}%`;
+  box.appendChild(el);
+  setTimeout(() => el.remove(), 2600);
 }
 
 // 浮動數字：+5 綠／藍、-3 紅
@@ -342,13 +378,13 @@ function fxEvent(ev) {
     switch (ev.type) {
       case 'play': break; // 已在展示卡牌時處理
       case 'pull':
-        if (ev.n > 0) { sfx.pull(); floatNum(ev.side, `+${ev.n}`); pulse(ev.side, 'joy'); }
+        if (ev.n > 0) { sfx.pull(); floatNum(ev.side, `+${ev.n}`); pulse(ev.side, 'joy'); chatter(ev.n >= 9 ? 'bigPull' : 'pull'); }
         break;
       case 'poach':
         if (ev.n > 0) {
           sfx.hit(); shake();
           floatNum(ev.side, `+${ev.n}`); floatNum(other(ev.side), `-${ev.n}`, true);
-          toast(`${who}挖走 ${ev.n} 人`, ev.side); pulse(other(ev.side), 'hit');
+          toast(`${who}挖走 ${ev.n} 人`, ev.side); pulse(other(ev.side), 'hit'); chatter('poach');
         }
         break;
       case 'encircle':
@@ -360,21 +396,21 @@ function fxEvent(ev) {
       case 'status':
         sfx.status();
         toast(`${ev.side === me ? '我方' : '對手'}：${STATUS_INFO[ev.status].icon}${STATUS_INFO[ev.status].name}`, ev.side);
-        if (STATUS_INFO[ev.status].bad) { pulse(ev.side, 'hit'); if (ev.side === me) oppReact('smug'); }
+        if (STATUS_INFO[ev.status].bad) { pulse(ev.side, 'hit'); if (ev.side === me) oppReact('smug'); chatter('status'); }
         break;
       case 'ult':
-        sfx.ult(); toast(`${who}大絕招「${ev.name}」！`, ev.side, true);
+        sfx.ult(); toast(`${who}大絕招「${ev.name}」！`, ev.side, true); chatter('ult');
         if (ev.side === me) meReact('big'); else oppReact('win', 1800);
         break;
       case 'burst':
         sfx.ult(); toast(`${who}聲量爆表！2 回合拉票 +50%`, ev.side, true);
         if (ev.side === me) meReact('big'); else oppReact('happy');
         break;
-      case 'trap': sfx.trap(); toast(ev.msg, ev.side, true); break;
+      case 'trap': sfx.trap(); toast(ev.msg, ev.side, true); chatter('trap'); break;
       case 'reflect': sfx.trap(); toast(ev.msg, ev.side, true); break;
-      case 'miss': toast(`${who}${ev.msg}`, ev.side); pulse(ev.side, 'hit'); break;
+      case 'miss': toast(`${who}${ev.msg}`, ev.side); pulse(ev.side, 'hit'); chatter('miss'); break;
       case 'sympathy': toast(`${who}${ev.msg}`, ev.side); break;
-      case 'field': toast(`${who}${ev.msg}`, ev.side, true); break;
+      case 'field': toast(`${who}${ev.msg}`, ev.side, true); chatter('rally'); break;
       case 'summon': toast(`${who}召喚「${ev.name}」`, ev.side); break;
       case 'setTrap': if (ev.side === opp) toast('對手蓋了一張牌…', opp); break;
       case 'discard': if (ev.side === me) toast(ev.msg); break;
@@ -388,6 +424,7 @@ function fxEvent(ev) {
         sfx.trap();
         if (ev.n > 0) floatNum(ev.caught ? other(ev.side) : ev.side, `-${ev.n}`, true);
         if (ev.caught) { floatNum(other(ev.side), `聲量 -${RULES.caughtVoice}`, true); shake(); }
+        chatter(ev.caught ? 'caught' : 'wrong');
         const iChallenged = ev.side === me;
         const lost = (n) => (n > 0 ? `-${n} 人、` : '');
         if (ev.caught) {
@@ -463,6 +500,7 @@ async function endMyTurn() {
   humanSkippedLast = true;
   endTurn(game);
   toast(timeLeft > 0 ? `跳過，行程點 ${saved} 點存著` : '時間到，自動跳過', me);
+  chatter('skip');
   const myGen = gen;
   await playEvents();
   if (myGen === gen) nextPhase();
@@ -499,6 +537,7 @@ async function runAI() {
     const skipped = game.players[opp].ap;
     endTurn(game);
     toast(`對手跳過，存了 ${skipped} 點行程點`, opp);
+    chatter('skip');
     await playEvents();
   }
   busy = false;
@@ -530,7 +569,7 @@ function openCard(uid) {
       <div class="nm">${TYPE[c.type][0]} ${c.name}</div>
       <div class="meta">${TYPE[c.type][1]}卡・${RAR_NAME[c.rarity]}・行程點 ${cost}${cost > c.cost ? '（被追問 +1）' : ''}${c.type === 'magic' ? '・不佔回合' : '・打出後換對手'}</div>
       <div class="tx">${c.text}</div>
-      <div class="fl">${c.flavor}</div>
+      ${pttLine(c)}
     </div>
     ${why ? `<p class="small center">${why}</p>` : ''}
     <div class="btns">
@@ -796,6 +835,10 @@ function showResult() {
     <p class="center small">${game.reason}</p>
     <div class="btns"><button class="btn ${me}" id="m-again">再玩一次</button><button class="btn ${opp}" id="m-swap">換陣營</button></div>
     <div class="btns"><button class="btn" id="m-share">分享</button><button class="btn" id="m-home">回首頁</button></div>
+    <div class="ptt center-ptt">${w === 'draw'
+      ? '<span class="tag arrow">→</span><span class="id">鄉民</span>: <span class="msg">平手？這劇本誰寫的</span>'
+      : won ? '<span class="tag push">推</span><span class="id">鄉民</span>: <span class="msg">恭喜！好人一生平安</span>'
+        : '<span class="tag arrow">→</span><span class="id">鄉民</span>: <span class="msg">下一局會更好，再來一場</span>'}</div>
     <p class="small center">遊戲結果僅供娛樂，與實際選情無關。</p>`, { locked: true });
   if (mode === 'online') {
     $('#m-again').textContent = '再配對一次';
