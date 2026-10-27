@@ -9,7 +9,8 @@ import {
 } from '../../site/js/engine.js';
 import { checkName, cleanName } from '../../site/js/names.js';
 import { parseFacts, askJev, judgeNickname, nicknameDecision, NICKNAME_QVER } from './jev.js';
-import { triageInbox } from './mail.js';
+import { triageInbox, digestInbox } from './mail.js';
+const DIGEST_CRON = '0 13 * * *'; // 要和 wrangler.toml 的 crons 一致
 
 const MAX_ROOMS = 200;
 const TURN_MS = 30_000;           // 一回合只出一張牌，30 秒
@@ -100,8 +101,13 @@ export default {
     return json({ error: 'not found' }, 404);
   },
 
-  // 每 5 分鐘：聯絡信箱分流（沒設定 AgentMail 金鑰或轉寄地址就不動作）
+  // 排程：每 5 分鐘信箱分流；每天 UTC 13:00（台北 21:00）寄一般來信彙整。沒設定 AgentMail 就不動作。
   async scheduled(event, env, ctx) {
+    if (event.cron === DIGEST_CRON) {
+      ctx.waitUntil(digestInbox(env).then((r) => console.log(JSON.stringify({ mail: 'digest', ...r })))
+        .catch((e) => console.log(JSON.stringify({ mail: 'digest-error', error: String(e).slice(0, 300) }))));
+      return;
+    }
     if (!jevEnabled(env)) return;
     ctx.waitUntil(triageInbox(env, { jevUrl: env.JEV_URL_OVERRIDE || undefined }).then((r) => {
       if (r.checked) console.log(JSON.stringify({ mail: 'run', ...r }));

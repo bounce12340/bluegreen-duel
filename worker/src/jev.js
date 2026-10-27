@@ -224,12 +224,40 @@ export const MAIL_QUESTIONS = {
       false: 'It is rude at most, or it firmly asks for something, including saying the writer will take legal action.',
     },
   },
+  // 評分題：回傳 0–3 的期望值（不是機率）
+  urgency: {
+    type: 'score',
+    instructions: 'How urgently does the author of the game need to read `email`?',
+    criteria: [
+      'Spam, advertising, or a message that needs no attention.',
+      'General feedback, a question, a compliment, or a bug report. It can wait a day.',
+      'It needs the author personally, such as a media interview request, a formal complaint, or a sponsorship offer, but it sets no deadline.',
+      'It sets a deadline or warns of consequences, such as a lawyer\'s letter, an official demand to remove content by a date, or a report of a security problem.',
+    ],
+  },
 };
-// 判斷規則：任一緊急條件 ≥ 0.5 → 標「urgent」並轉寄作者；媒體來信也轉寄
-export function mailDecision(scores) {
+const NOUL_MAIL_KEYS = Object.keys(MAIL_QUESTIONS).filter((k) => MAIL_QUESTIONS[k].type === 'noul');
+
+// 緊急程度（0–3）：Jev 的分級打底，再用是非題當安全網——
+// 要求下架、自稱官方、提到法律、用錢換內容、記者來信，至少算 2 級（一定轉寄），不會因為分級偏低就漏掉。
+//   3 特急：立即轉寄　2 需本人處理：轉寄　1 一般：晚上彙整　0 垃圾：只貼標籤
+export const MAIL_LEVEL_CUTS = [0.5, 1.5, 2.5];
+export function mailLevel(scores) {
+  const u = scores.urgency;
+  let level = MAIL_LEVEL_CUTS.filter((c) => u >= c).length;
   const urgentKeys = ['asks_removal', 'speaks_for_official', 'mentions_legal', 'money_for_content'];
-  const labels = [];
-  const urgent = urgentKeys.some((k) => scores[k] >= 0.5);
+  const ruleUrgent = urgentKeys.some((k) => scores[k] >= 0.5);
+  if (ruleUrgent || scores.from_press >= 0.7) level = Math.max(level, 2);
+  if (level < 1 && (scores.reports_bug >= 0.7 || scores.about_money >= 0.7)) level = 1; // 錯誤回報、贊助不算垃圾
+  return { level, ruleUrgent };
+}
+
+// 判斷規則：類別標籤＋緊急程度 prio-0～3；2 級以上轉寄作者
+export function mailDecision(scores) {
+  const { level, ruleUrgent } = mailLevel(scores);
+  const labels = [`prio-${level}`];
+  const urgent = ruleUrgent;
+  if (level === 3) labels.push('critical');
   if (urgent) labels.push('urgent');
   if (scores.asks_removal >= 0.5) labels.push('takedown');
   if (scores.speaks_for_official >= 0.5) labels.push('official');
@@ -239,13 +267,16 @@ export function mailDecision(scores) {
   if (scores.reports_bug >= 0.7) labels.push('bug');
   if (scores.from_press >= 0.7) labels.push('press');
   if (scores.abusive >= 0.7) labels.push('abusive');
-  if (!labels.length) labels.push('other');
-  return { labels, forward: urgent || labels.includes('press'), urgent };
+  if (!labels.some((l) => !l.startsWith('prio-') && l !== 'critical')) labels.push('other'); // 沒有任何類別
+  return { labels, level, forward: level >= 2, urgent };
 }
 export async function judgeMail(apiKey, subject, body, url = JEV_URL) {
   const email = { subject: String(subject || '').slice(0, 300), body: String(body || '').slice(0, 6000) };
   const r = await callJev(apiKey, { email, context: MAIL_CONTEXT }, MAIL_QUESTIONS, { url, timeoutMs: 8000 });
-  const scores = Object.fromEntries(Object.keys(MAIL_QUESTIONS).map((k) => [k, noul(r.answers, k)]));
+  const scores = Object.fromEntries(NOUL_MAIL_KEYS.map((k) => [k, noul(r.answers, k)]));
+  const u = r.answers.urgency;
+  if (typeof u?.score !== 'number') throw new Error('jev bad score urgency'); // 失敗不當答案：交給呼叫端轉寄
+  scores.urgency = u.score;
   return { scores, ...mailDecision(scores), model: r.model, usage: r.usage };
 }
 

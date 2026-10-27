@@ -36,7 +36,7 @@ new_sqlite_classes = ["JevGate"]
 
 # 每 5 分鐘檢查一次聯絡信箱（需 AGENTMAIL_API_KEY、NOTIFY_EMAIL）
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/5 * * * *", "0 13 * * *"] # 信箱分流；每日彙整（台北 21:00）
 
 [observability]
 enabled = true

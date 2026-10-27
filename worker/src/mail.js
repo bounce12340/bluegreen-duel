@@ -77,12 +77,21 @@ async function deliver(env, inbox, id, msg, { tag, why, labels }, tries) {
 }
 
 function tagFor(labels) {
+  if (labels.includes('critical')) return '特急';
   if (labels.includes('urgent')) return '緊急';
   if (labels.includes('press')) return '媒體';
-  return '待確認';
+  if (labels.includes('unclassified')) return '待確認';
+  return '待處理';
 }
 
-const CATEGORY = new Set(['urgent', 'takedown', 'official', 'legal', 'conditional-sponsor', 'sponsor', 'bug', 'press', 'abusive', 'other', 'unclassified']);
+// 轉寄信裡寫給作者看的判斷依據：觸發的是非題＋緊急度分數
+function explain(scores) {
+  if (!scores) return 'Jev 判斷失敗，請自行確認';
+  const hits = Object.entries(scores).filter(([k, v]) => k !== 'urgency' && v >= 0.5).map(([k, v]) => `${k} ${v.toFixed(2)}`);
+  return [`緊急度 ${scores.urgency.toFixed(1)} / 3`, ...hits].join('、');
+}
+
+const CATEGORY = new Set(['critical', 'prio-0', 'prio-1', 'prio-2', 'prio-3', 'urgent', 'takedown', 'official', 'legal', 'conditional-sponsor', 'sponsor', 'bug', 'press', 'abusive', 'other', 'unclassified']);
 
 export async function triageInbox(env, { jevUrl } = {}) {
   if (!env.AGENTMAIL_API_KEY || !env.NOTIFY_EMAIL) return { skipped: 'not configured' };
@@ -111,10 +120,7 @@ export async function triageInbox(env, { jevUrl } = {}) {
       await addLabels(env, inbox, id, ['triaged', ...result.labels, ...(result.forward ? ['needs-forward'] : [])]);
       let fwd = [];
       if (result.forward) {
-        const why = result.scores
-          ? Object.entries(result.scores).filter(([, v]) => v >= 0.5).map(([k, v]) => `${k} ${v.toFixed(2)}`).join('、') || '（無）'
-          : 'Jev 判斷失敗，請自行確認';
-        fwd = await deliver(env, inbox, id, msg, { tag: tagFor(result.labels), why, labels: result.labels }, 1);
+        fwd = await deliver(env, inbox, id, msg, { tag: tagFor(result.labels), why: explain(result.scores), labels: result.labels }, 1);
         await addLabels(env, inbox, id, fwd);
       }
       console.log(JSON.stringify({ mail: 'triaged', labels: result.labels, forward: fwd, scores: result.scores }));
@@ -139,4 +145,38 @@ export async function triageInbox(env, { jevUrl } = {}) {
     }
   }
   return { checked: fresh.length + retry.length, done };
+}
+
+// 每日彙整（台北時間 21:00）：1 級的一般來信整理成一封寄給作者；0 級垃圾信只報數量。處理過的貼 digested。
+export async function digestInbox(env) {
+  if (!env.AGENTMAIL_API_KEY || !env.NOTIFY_EMAIL) return { skipped: 'not configured' };
+  const to = notifyTargets(env.NOTIFY_EMAIL);
+  if (!to.length) return { skipped: 'notify-email-invalid' };
+  const inbox = encodeURIComponent(env.MAIL_INBOX || 'bluegreen-duel@agentmail.to');
+  const after = new Date(Date.now() - 3 * 86400_000).toISOString();
+  const list = await am(env, `/inboxes/${inbox}/messages?limit=100&after=${encodeURIComponent(after)}`);
+  const has = (m, l) => (m.labels || []).includes(l);
+  const pending = (list.messages || []).filter((m) => has(m, 'triaged') && !has(m, 'digested') && !has(m, 'sent'));
+  const normal = pending.filter((m) => has(m, 'prio-1'));
+  const junk = pending.filter((m) => has(m, 'prio-0'));
+  if (!normal.length && !junk.length) return { sent: false };
+  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(5, 10).replace('-', '/');
+  const lines = normal.map((m, i) => {
+    const cats = (m.labels || []).filter((l) => CATEGORY.has(l) && !l.startsWith('prio-'));
+    const preview = String(m.preview || '').replace(/\s+/g, ' ').slice(0, 120);
+    return `${i + 1}. ${m.subject || '（無主旨）'}\n   寄件者：${m.from || '（未知）'}｜分類：${cats.join('、') || 'other'}\n   ${preview}`;
+  });
+  const text = [
+    `今天（${day}）有 ${normal.length} 封一般來信，不急，有空再看：`, '', ...lines,
+    ...(junk.length ? ['', `另有 ${junk.length} 封判定為垃圾或廣告，只貼標籤沒有轉寄。`] : []),
+    '', '（完整原信在 bluegreen-duel@agentmail.to 信箱。2 級以上的來信會即時轉寄，不會出現在彙整裡。）',
+  ].join('\n');
+  await am(env, `/inboxes/${inbox}/messages/send`, {
+    method: 'POST', body: JSON.stringify({ to, subject: `【每日彙整】藍綠攻防戰來信 ${normal.length} 封（${day}）`, text }),
+  });
+  for (const m of [...normal, ...junk]) {
+    try { await addLabels(env, inbox, encodeURIComponent(m.message_id), ['digested']); }
+    catch (e) { console.log(JSON.stringify({ mail: 'digest-label-error', error: String(e).slice(0, 200) })); }
+  }
+  return { sent: true, normal: normal.length, junk: junk.length };
 }
