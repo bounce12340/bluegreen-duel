@@ -5,7 +5,7 @@ os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
 from playwright.sync_api import sync_playwright
 OUT = sys.argv[1]; LOCALE = sys.argv[2] if len(sys.argv) > 2 else "en-US"
 os.makedirs(OUT, exist_ok=True)
-srv = subprocess.Popen([sys.executable, "-m", "http.server", "8767"], cwd="/home/claude/bluegreen-duel/site",
+srv = subprocess.Popen([sys.executable, "-m", "http.server", "8767"], cwd=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "site"),
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(1)
 CJK = re.compile(r"[一-鿿]")
