@@ -203,6 +203,7 @@ const DICT = {
   '你的策略：{a}｜對手：{b}': 'Your strategy: {a} | Opponent: {b}', '場地事件「{name}」結束': 'Venue event "{name}" is over',
   '等對手選策略…': 'Waiting for your opponent to choose…', '雙方都選好就開始。': 'The game starts once you\'ve both chosen.',
   '{icon} {name}：{text}': '{icon} {name}: {text}',
+  '🎵 背景音樂：開': '🎵 Music: on', '🎵 背景音樂：關': '🎵 Music: off',
   '🎓 新手教學': '🎓 Tutorial', '📅 每日挑戰': '📅 Daily challenge', '🏆 成就與圖鑑': '🏆 Achievements & cards',
   成就解鎖: 'Achievement unlocked', '每日挑戰 {d}：大家今天打同一副牌': 'Daily challenge {d}: everyone plays the same deal today',
   '每日挑戰 {d}': 'Daily challenge {d}', 今天已過關: 'Cleared today', 今天還沒過關: 'Not cleared yet today', '連勝 {n} 天': '{n}-day streak',

@@ -12,7 +12,7 @@ import { initFx, syncBoard, playFx, victory, clearVictory } from './fx.js';
 import * as PG from './progress.js';
 import { drawShareCard, shareImage } from './share.js';
 import { CARDS, POLICIES, VENUES } from './cards.js';
-import { unlock, sfx, isMuted, setMuted, setRemoteVolume } from './sound.js';
+import { unlock, sfx, isMuted, setMuted, setRemoteVolume, music, isMusicOn, setMusicOn } from './sound.js';
 import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
 import { checkName, cleanName, NAME_MAX } from './names.js';
 import { pickChatter, TONE_TAG } from './chatter.js';
@@ -153,6 +153,7 @@ function setupBattle(side) {
   busy = false;
   seenUids = new Set();
   clearVictory();
+  music(true);
   hideCoach();
   const db = $('#demo-banner'); if (db) db.classList.add('hidden');
   resultShown = false;
@@ -548,7 +549,7 @@ function fxEvent(ev) {
     switch (ev.type) {
       case 'play': break; // 已在展示卡牌時處理
       case 'pull':
-        if (ev.n > 0) { sfx.pull(); floatNum(ev.side, `+${ev.n}`); pulse(ev.side, 'joy'); chatter(ev.n >= 9 ? 'bigPull' : 'pull'); if (ev.n >= 9) hitStop(70); }
+        if (ev.n > 0) { sfx.pull(); floatNum(ev.side, `+${ev.n}`); pulse(ev.side, 'joy'); chatter(ev.n >= 9 ? 'bigPull' : 'pull'); if (ev.n >= 9) { hitStop(70); sfx.cheer(); } }
         break;
       case 'poach':
         if (ev.n > 0) {
@@ -570,14 +571,14 @@ function fxEvent(ev) {
         if (STATUS_INFO[ev.status].bad) { pulse(ev.side, 'hit'); if (ev.side === me) oppReact('smug'); chatter('status'); }
         break;
       case 'ult':
-        sfx.ult(); toast(t('{who}大絕招「{name}」！', { who, name: nameEN(ev.name) }), ev.side, true); chatter('ult');
+        sfx.ult(); sfx.cheer(); toast(t('{who}大絕招「{name}」！', { who, name: nameEN(ev.name) }), ev.side, true); chatter('ult');
         if (ev.side === me) meReact('big'); else oppReact('win', 1800);
         break;
       case 'burst':
         sfx.ult(); toast(t('{who}聲量爆表！2 回合拉票 +50%', { who }), ev.side, true);
         if (ev.side === me) meReact('big'); else oppReact('happy');
         break;
-      case 'trap': sfx.trap(); toast(ev.msg, ev.side, true); chatter('trap'); break;
+      case 'trap': sfx.trap(); sfx.ooh(); toast(ev.msg, ev.side, true); chatter('trap'); break;
       case 'reflect': sfx.trap(); toast(ev.msg, ev.side, true); break;
       case 'miss': toast(sideMsg(ev), ev.side); pulse(ev.side, 'hit'); chatter('miss'); break;
       case 'sympathy': toast(sideMsg(ev), ev.side); break;
@@ -591,7 +592,7 @@ function fxEvent(ev) {
         break;
       case 'combo': {
         const info = COMBO_INFO[ev.tag];
-        sfx.ult();
+        sfx.ult(); sfx.cheer();
         toast(t('{who}連擊！{name}：多拉 {n} 人、聲量 +{v}', { who, name: info ? info.name : '', n: COMBO_BONUS.pull, v: COMBO_BONUS.voice }), ev.side, true);
         chatter('bigPull');
         break;
@@ -607,7 +608,7 @@ function fxEvent(ev) {
       case 'challenge': {
         sfx.trap();
         if (ev.n > 0) floatNum(ev.caught ? other(ev.side) : ev.side, `-${ev.n}`, true);
-        if (ev.caught) { floatNum(other(ev.side), t('聲量 -{n}', { n: RULES.caughtVoice }), true); hitStop(140); if (other(ev.side) === me) buzz([90]); }
+        if (ev.caught) { floatNum(other(ev.side), t('聲量 -{n}', { n: RULES.caughtVoice }), true); hitStop(140); sfx.ooh(); if (other(ev.side) === me) buzz([90]); }
         else if (ev.side === me) buzz([60]);
         chatter(ev.caught ? 'caught' : 'wrong');
         const iChallenged = ev.side === me;
@@ -1154,6 +1155,7 @@ function openMenu() {
       <button class="btn" id="m-priv">${t('隱私聲明')}</button>
       <button class="btn" id="m-report">${t('回報問題')}</button>
       <button class="btn" id="m-album">${t('🏆 成就與圖鑑')}</button>
+      <button class="btn" id="m-music">${t(isMusicOn() ? '🎵 背景音樂：開' : '🎵 背景音樂：關')}</button>
       <button class="btn" id="m-home">${t(mode === 'online' && game && !game.over ? '離開（30 秒後判負）' : '回首頁（放棄這局）')}</button>
       <button class="btn primary" id="m-ok">${t('繼續')}</button>
     </div>
@@ -1164,6 +1166,7 @@ function openMenu() {
   $('#m-priv').onclick = openPrivacy;
   $('#m-report').onclick = openReport;
   $('#m-album').onclick = () => openAlbum(true);
+  $('#m-music').onclick = () => { setMusicOn(!isMusicOn()); openMenu(); };
   $('#m-home').onclick = goHome;
   $('#m-ok').onclick = closeModal;
 }
@@ -1352,6 +1355,7 @@ function demoFinished() {
 }
 function stopDemo() {
   gen += 1;
+  music(false);
   gameKind = 'normal';
   game = null;
   syncBoard(null);
@@ -1407,6 +1411,7 @@ function goHome() {
   gen += 1;
   tut = null; hideCoach();
   gameKind = 'normal';
+  music(false);
   leaveOnline();
   mode = 'local';
   names = { blue: null, green: null };
@@ -1429,7 +1434,7 @@ function showResult() {
   const w = game.winner;
   const b = game.players.blue.supporters, g = game.players.green.supporters;
   const won = w === me;
-  if (w === 'draw') sfx.lose(); else if (won) sfx.win(); else sfx.lose();
+  if (w === 'draw') sfx.lose(); else if (won) { sfx.win(); sfx.cheer(); } else sfx.lose();
   recordGame(w === 'draw' ? 'draw' : won ? 'win' : 'loss');
   const margin = game.players[me].supporters - game.players[opp].supporters;
   const got = PG.finishGame(w === 'draw' ? 'draw' : won ? 'win' : 'loss', margin);
