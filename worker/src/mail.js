@@ -35,7 +35,10 @@ const statusOf = (e) => (e instanceof AgentMailError ? String(e.status) : 'net')
 
 // 祕密可能被貼成「a@x.com, b@y.com」或帶空白換行：拆開、去空白、只留合法地址
 export function notifyTargets(raw) {
-  return String(raw || '').split(/[,;\s]+/).map((s) => s.trim()).filter((s) => EMAIL_RE.test(s));
+  const norm = String(raw || '')
+    .replace(/＠/g, '@').replace(/[．。]/g, '.').replace(/[，、；]/g, ',') // 全形符號
+    .replace(/mailto:/gi, '').replace(/[<>"'“”「」]/g, ' ');           // mailto:、<地址>、引號
+  return norm.split(/[,;\s]+/).map((s) => s.trim()).filter((s) => EMAIL_RE.test(s));
 }
 
 function addLabels(env, inbox, id, labels) {
