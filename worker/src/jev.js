@@ -178,19 +178,24 @@ export const NICKNAME_QUESTIONS = {
     },
   },
 };
-// 判斷規則（程式決定）：冒充、拉票牽涉法律，門檻 0.5；罵人、歧視 0.7
+// 判斷規則（程式決定）：暱稱寧可錯擋——擋錯了玩家換一個名字就好，放過歧視或冒充則有法律與聲譽風險，所以一律 0.5
 export const NICKNAME_RULES = [
   { key: 'claims_politician', threshold: 0.5, msg: '這個暱稱像是在冒充真實政治人物或其團隊，請換一個' },
   { key: 'claims_official', threshold: 0.5, msg: '這個暱稱像是在冒充官方或遊戲管理員，請換一個' },
   { key: 'campaigns', threshold: 0.5, msg: '暱稱不能有投票或罷免呼籲，請換一個' },
-  { key: 'insults', threshold: 0.7, msg: '這個暱稱含有罵人的字眼，請換一個' },
-  { key: 'demeans_group', threshold: 0.7, msg: '這個暱稱有歧視或貶低特定族群的意味，請換一個' },
+  { key: 'insults', threshold: 0.5, msg: '這個暱稱含有罵人的字眼，請換一個' },
+  { key: 'demeans_group', threshold: 0.5, msg: '這個暱稱有歧視或貶低特定族群的意味，請換一個' },
 ];
+// 快取存「判斷」（各題機率），決定在讀取時用上面的規則算，改門檻不必重問；改問題就換版本號
+export const NICKNAME_QVER = `n${JSON.stringify(NICKNAME_QUESTIONS).length}`;
+export function nicknameDecision(scores) {
+  const hit = NICKNAME_RULES.find((rule) => scores[rule.key] >= rule.threshold);
+  return { ok: !hit, msg: hit ? hit.msg : null };
+}
 export async function judgeNickname(apiKey, nickname, url = JEV_URL) {
   const r = await callJev(apiKey, { nickname, context: NICKNAME_CONTEXT }, NICKNAME_QUESTIONS, { url });
   const scores = Object.fromEntries(Object.keys(NICKNAME_QUESTIONS).map((k) => [k, noul(r.answers, k)]));
-  const hit = NICKNAME_RULES.find((rule) => scores[rule.key] >= rule.threshold);
-  return { ok: !hit, msg: hit ? hit.msg : null, scores, model: r.model, usage: r.usage };
+  return { ...nicknameDecision(scores), scores, model: r.model, usage: r.usage };
 }
 
 // ── 3. 聯絡信箱分流 ───────────────────────────
@@ -238,7 +243,7 @@ export async function judgeMail(apiKey, subject, body, url = JEV_URL) {
 }
 
 // ── 4. 卡牌合規＋嘲諷對稱（部署前檢查用）─────────
-export const CONTENT_CONTEXT = 'This is one card from 藍綠對決, a political-satire card game about the 2026 Taipei mayoral race. 萬安號 is a cartoon mascot for 蔣萬安 (KMT, blue camp); 伯洋號 is a cartoon mascot for 沈伯洋 (DPP, green camp). "Blue" cards are played by the 蔣萬安 side and "green" cards by the 沈伯洋 side; "shared" cards can be played by either. The game\'s rules forbid putting invented quotes in a real person\'s mouth, attacking looks, family, or groups of people, and asking people to vote.';
+export const CONTENT_CONTEXT = 'This is one card from 藍綠對決, a political-satire card game about the 2026 Taipei mayoral race. 萬安號 is a cartoon mascot for 蔣萬安 (KMT, blue camp); 伯洋號 is a cartoon mascot for 沈伯洋 (DPP, green camp). "Blue" cards are played by the 蔣萬安 side and "green" cards by the 沈伯洋 side; "shared" cards can be played by either.';
 export const CONTENT_QUESTIONS = {
   quotes_real_person: {
     type: 'noul',
@@ -249,7 +254,14 @@ export const CONTENT_QUESTIONS = {
     },
   },
   mocks_looks_family_health: { type: 'noul', instructions: 'Does `card` mock someone\'s looks, body, family, or health?' },
-  demeans_group: { type: 'noul', instructions: 'Does `card` put down supporters of a party, an ethnic group, or people from a place?' },
+  demeans_group: {
+    type: 'noul',
+    instructions: 'Does `card` put down supporters of a party, an ethnic group, or people from a place?',
+    criteria: {
+      true: 'The card belittles a whole group, for example calling one camp\'s supporters sheep, brainwashed, or stupid.',
+      false: 'The card shows supporters, volunteers, or staff doing campaign activities without belittling them, or does not mention any group.',
+    },
+  },
   asks_to_vote: { type: 'noul', instructions: 'Does `card` tell the reader to vote, or not to vote, for someone?' },
   states_real_event: {
     type: 'noul',

@@ -8,7 +8,7 @@ import {
   declareCard, respond, hasStatus, RULES,
 } from '../../site/js/engine.js';
 import { checkName, cleanName } from '../../site/js/names.js';
-import { parseFacts, askJev, judgeNickname } from './jev.js';
+import { parseFacts, askJev, judgeNickname, nicknameDecision, NICKNAME_QVER } from './jev.js';
 import { triageInbox } from './mail.js';
 
 const MAX_ROOMS = 200;
@@ -145,14 +145,14 @@ export class JevGate extends DurableObject {
     // 暱稱審核（大廳與房間內部呼叫）：先查快取，同一個暱稱 7 天內不重問
     if (url.pathname === '/nickname') {
       const { name, ip } = await req.json();
-      const ck = `nick:${name}`;
+      const ck = `nick:${NICKNAME_QVER}:${name}`;
       const cached = await this.ctx.storage.get(ck);
-      if (cached && Date.now() - cached.at < 7 * 86400_000) return json({ ok: cached.ok, msg: cached.msg, cached: true });
+      if (cached && cached.scores && Date.now() - cached.at < 7 * 86400_000) return json({ ...nicknameDecision(cached.scores), cached: true });
       const blocked = await this.admit(ip || 'unknown');
       if (blocked) return json({ ok: true, unchecked: true, reason: 'rate' }); // 超過頻率就只靠關鍵字
       try {
         const r = await judgeNickname(env.TYPESAFE_API_KEY, name, jevUrl);
-        await this.ctx.storage.put(ck, { ok: r.ok, msg: r.msg, at: Date.now() });
+        await this.ctx.storage.put(ck, { scores: r.scores, at: Date.now() });
         console.log(JSON.stringify({ jev: 'nickname', ok: r.ok, scores: r.scores, usage: r.usage }));
         return json({ ok: r.ok, msg: r.msg });
       } catch (e) {
