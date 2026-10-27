@@ -7,7 +7,7 @@ import {
 } from './engine.js';
 import { aiStep, respondDecision, newProfile, observeEvents, EASE_NAMES, EASE_MAX } from './ai.js';
 import { createCrowd } from './crowd.js';
-import { initFx, syncBoard, playFx } from './fx.js';
+import { initFx, syncBoard, playFx, victory, clearVictory } from './fx.js';
 import { unlock, sfx, isMuted, setMuted, setRemoteVolume } from './sound.js';
 import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
 import { checkName, cleanName, NAME_MAX } from './names.js';
@@ -25,6 +25,7 @@ const RAR = { common: '', rare: '★', epic: '★★' };
 const RAR_NAME = { common: '普通', rare: '稀有', epic: '史詩' };
 
 let game = null, me = 'blue', opp = 'green', busy = false, timerId = null, timeLeft = 0, gen = 0;
+let seenUids = new Set(); // 已經在手牌出現過的牌：新抽到的牌播翻面動畫
 // 出牌演出：卡牌先放大展示，結束後才更新比分與群眾
 let fxChain = Promise.resolve(), holdBoard = false, animating = 0, castSkip = null;
 // 連線時伺服器送來的卡牌文字是中文；顯示一律以本機卡牌資料為準（英文版載入時已換成英文）
@@ -135,6 +136,8 @@ function setupEncoreRemote() {
 function setupBattle(side) {
   me = side; opp = other(side);
   busy = false;
+  seenUids = new Set();
+  clearVictory();
   resultShown = false;
   closeModal();
   show('battle');
@@ -239,16 +242,22 @@ function render() {
   // 手牌
   const hand = $('#hand');
   hand.innerHTML = '';
+  let fresh = 0;
   for (const raw of mp.hand) {
     const c = loc(raw);
     const el = document.createElement('button');
     const ok = myTurn && !busy && canPlay(game, me, c.uid);
     const cost = cardCost(game, me, c);
-    el.className = `card ${c.side === 'shared' ? '' : c.side} ${c.rarity === 'epic' ? 'epic' : ''} ${ok ? '' : 'cant'}`;
+    el.className = `card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity} ${ok ? 'ok' : 'cant'}`;
+    if (!seenUids.has(c.uid)) {
+      seenUids.add(c.uid);
+      el.classList.add('drawn');
+      el.style.animationDelay = `${fresh++ * 0.12}s`;
+    }
     el.innerHTML = `<span class="art-wrap"><img class="art" src="${art(c.id)}" alt="" loading="lazy" draggable="false">
         <span class="cost ${cost > c.cost ? 'up' : ''}">${cost}</span><span class="type">${TYPE[c.type][0]}</span></span>
       <span class="nm">${c.name}${RAR[c.rarity] ? `<span class="rar">${RAR[c.rarity]}</span>` : ''}</span><span class="tx">${c.hand || c.short || c.text}</span>`;
-    el.addEventListener('click', () => openCard(c.uid));
+    bindCardPointer(el, c, ok);
     hand.appendChild(el);
   }
   for (let i = mp.hand.length; i < RULES.handMax; i++) hand.insertAdjacentHTML('beforeend', '<div></div>');
@@ -353,7 +362,7 @@ function showCast(c) {
     let body;
     if (c.facedown) body = `<div class="cast-card facedown ${c.side}"><div class="back">🂠</div><div class="nm">？？？</div></div>`;
     else if (c.ult) body = `<div class="cast-card ult ${c.side}"><img class="mascot-art" src="assets/${c.side}_win.webp" alt=""><div class="nm">${c.ult}</div></div>`;
-    else body = `<div class="cast-card ${sideCls}"><img class="art" src="${art(c.card.id)}" alt="">
+    else body = `<div class="cast-card ${sideCls} t-${c.card.type} ${c.card.rarity}"><img class="art" src="${art(c.card.id)}" alt="">
       <div class="nm">${c.card.name}</div><div class="tx">${c.card.text}</div>${pttLine(c.card)}</div>`;
     box.innerHTML = `<div class="cast-label ${c.bad ? 'bad' : ''} ${c.side}">${c.label}</div>${body}`;
     box.className = `cast-${c.side === me ? 'me' : 'opp'}`;
@@ -415,6 +424,16 @@ function floatNum(side, text, bad = false) {
   $('#floats').appendChild(el);
   setTimeout(() => el.remove(), 1700);
 }
+// 打擊停頓：畫面先凍結一瞬間再震動，打擊感比較強
+function hitStop(ms = 90) {
+  const b = $('#battle');
+  b.classList.add('hitstop');
+  setTimeout(() => { b.classList.remove('hitstop'); shake(); }, ms);
+}
+// 手機震動（Android；iPhone 網頁不支援就略過）；靜音時不震
+function buzz(pattern) {
+  try { if (!isMuted() && navigator.vibrate) navigator.vibrate(pattern); } catch { /* 忽略 */ }
+}
 function shake() {
   const b = $('#battle');
   b.classList.remove('shake');
@@ -430,11 +449,12 @@ function fxEvent(ev) {
     switch (ev.type) {
       case 'play': break; // 已在展示卡牌時處理
       case 'pull':
-        if (ev.n > 0) { sfx.pull(); floatNum(ev.side, `+${ev.n}`); pulse(ev.side, 'joy'); chatter(ev.n >= 9 ? 'bigPull' : 'pull'); }
+        if (ev.n > 0) { sfx.pull(); floatNum(ev.side, `+${ev.n}`); pulse(ev.side, 'joy'); chatter(ev.n >= 9 ? 'bigPull' : 'pull'); if (ev.n >= 9) hitStop(70); }
         break;
       case 'poach':
         if (ev.n > 0) {
-          sfx.hit(); shake();
+          sfx.hit(); hitStop(ev.n >= 5 ? 120 : 60);
+          if (other(ev.side) === me) buzz([40, 30, 40]);
           floatNum(ev.side, `+${ev.n}`); floatNum(other(ev.side), `-${ev.n}`, true);
           toast(t('{who}挖走 {n} 人', { who, n: ev.n }), ev.side); pulse(other(ev.side), 'hit'); chatter('poach');
         }
@@ -475,7 +495,8 @@ function fxEvent(ev) {
       case 'challenge': {
         sfx.trap();
         if (ev.n > 0) floatNum(ev.caught ? other(ev.side) : ev.side, `-${ev.n}`, true);
-        if (ev.caught) { floatNum(other(ev.side), t('聲量 -{n}', { n: RULES.caughtVoice }), true); shake(); }
+        if (ev.caught) { floatNum(other(ev.side), t('聲量 -{n}', { n: RULES.caughtVoice }), true); hitStop(140); if (other(ev.side) === me) buzz([90]); }
+        else if (ev.side === me) buzz([60]);
         chatter(ev.caught ? 'caught' : 'wrong');
         const iChallenged = ev.side === me;
         const lost = (n) => (n > 0 ? t('-{n} 人、', { n }) : '');
@@ -494,7 +515,13 @@ function fxEvent(ev) {
       case 'expose':
         toast(t(ev.side === me ? '你的陷阱被翻開了：{list}' : '對手的陷阱翻開了：{list}', { list: listJoin(ev.traps.map(nameEN)) }), other(ev.side), true);
         break;
-      case 'gameOver': setTimeout(showResult, 900); break;
+      case 'gameOver':
+        if (game && game.winner !== 'draw') {
+          victory(game.winner === me ? 'me' : 'opp', game.winner);
+          buzz(game.winner === me ? [30, 40, 30, 40, 120] : [220]);
+        }
+        setTimeout(showResult, 2000);
+        break;
       default: break;
     }
   }
@@ -522,7 +549,7 @@ async function startMyTurn() {
   render();
   await playEvents();
   if (myGen !== gen || !game || game.over) return;
-  toast(t('你的回合（第 {n} 回合）', { n: game.round }), me);
+  turnBanner(t('你的回合'), t('第 {r} / {m} 回合', { r: Math.min(game.round, RULES.maxRounds), m: RULES.maxRounds }), me);
   timeLeft = CONFIG.TURN_SECONDS;
   updateTimer();
   clearInterval(timerId);
@@ -535,9 +562,23 @@ async function startMyTurn() {
   }, 1000);
 }
 function updateTimer() {
-  const t = $('#timer');
-  t.textContent = String(Math.max(0, timeLeft));
-  t.classList.toggle('low', timeLeft <= 10);
+  const el = $('#timer');
+  el.textContent = String(Math.max(0, timeLeft));
+  el.classList.toggle('low', timeLeft <= 10);
+  // 最後 5 秒：畫面邊緣紅光閃動
+  $('#battle').classList.toggle('urgent', !!(game && !game.over && game.current === me && !game.pending && timeLeft > 0 && timeLeft <= 5));
+}
+
+// 回合開場橫幅：從左掃到右；對手回合用小一號
+function turnBanner(title, sub, side, small = false) {
+  const old = $('#turn-banner');
+  if (old) old.remove();
+  const b = document.createElement('div');
+  b.id = 'turn-banner';
+  b.className = `${side} ${small ? 'small' : ''}`;
+  b.innerHTML = `<b>${esc(title)}</b><span>${esc(sub)}</span>`;
+  $('#battle').appendChild(b);
+  setTimeout(() => b.remove(), 1500);
 }
 
 async function doPlay(uid) {
@@ -581,8 +622,10 @@ async function runAI() {
   busy = true;
   clearInterval(timerId);
   $('#timer').textContent = '…';
+  $('#battle').classList.remove('urgent');
   render();
   await playEvents();
+  if (myGen === gen && game && !game.over) turnBanner(t('對手回合'), t('第 {r} / {m} 回合', { r: Math.min(game.round, RULES.maxRounds), m: RULES.maxRounds }), opp, true);
   await sleep(1100); // 電腦「想一下」，節奏不要太快
   for (let i = 0; i < 6; i++) {
     if (myGen !== gen || game.over) return;
@@ -613,6 +656,63 @@ async function runAI() {
   if (myGen === gen) nextPhase();
 }
 
+// ── 拖曳出牌：把手牌往上拖到場上放開就打出；只點一下照舊打開卡牌說明 ──
+let suppressClick = false;
+function dragTarget(c) {
+  const fx = c.fx || {};
+  if (fx.poach || fx.applyStatus) return 'opp';
+  return 'me';
+}
+function bindCardPointer(el, c, ok) {
+  let start = null, ghost = null, dragging = false;
+  const battle = $('#battle');
+  const dockTop = () => $('.dock').getBoundingClientRect().top + 8;
+  const cleanup = () => {
+    if (ghost) ghost.remove();
+    ghost = null; start = null; dragging = false;
+    el.classList.remove('lifted');
+    battle.classList.remove('dragging', 'drop-ok', 'drag-me', 'drag-opp');
+  };
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button) return;
+    start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    if (!dragging) {
+      if (dy > -14 && Math.hypot(dx, dy) < 20) return;
+      if (!ok || !isMyTurn()) { start = null; return; } // 不能出的牌不給拖，點開可以看原因
+      dragging = true;
+      try { el.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
+      const r = el.getBoundingClientRect();
+      ghost = el.cloneNode(true);
+      ghost.className += ' drag-ghost';
+      ghost.style.width = `${r.width}px`;
+      ghost.style.height = `${r.height}px`;
+      ghost.dataset.ox = String(start.x - r.left);
+      ghost.dataset.oy = String(start.y - r.top);
+      document.body.appendChild(ghost);
+      el.classList.add('lifted');
+      battle.classList.add('dragging', `drag-${dragTarget(c)}`);
+      sfx.card();
+    }
+    ghost.style.left = `${e.clientX - Number(ghost.dataset.ox)}px`;
+    ghost.style.top = `${e.clientY - Number(ghost.dataset.oy)}px`;
+    battle.classList.toggle('drop-ok', e.clientY < dockTop());
+  });
+  el.addEventListener('pointerup', (e) => {
+    if (!dragging) { start = null; return; }
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 50);
+    const drop = e.clientY < dockTop();
+    cleanup();
+    if (drop && isMyTurn() && canPlay(game, me, c.uid)) doPlay(c.uid);
+  });
+  el.addEventListener('pointercancel', cleanup);
+  el.addEventListener('click', () => { if (!suppressClick) openCard(c.uid); });
+}
+
 // ── 彈窗 ─────────────────────────────────
 function openModal(html, { locked = false, pause = false } = {}) {
   const m = $('#modal');
@@ -633,7 +733,7 @@ function openCard(uid) {
   else if (c.type === 'trap' && game.players[me].traps.length >= 2) why = t('最多同時蓋 2 張陷阱');
   else if (!ok) why = t('行程點不足（需要 {n}）', { n: cost });
   openModal(`
-    <div class="big-card ${c.side === 'shared' ? '' : c.side}">
+    <div class="big-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity}">
       <img class="art" src="${art(c.id)}" alt="">
       <div class="nm">${TYPE[c.type][0]} ${c.name}</div>
       <div class="meta">${t('{type}卡・{rar}・行程點 {cost}', { type: t(TYPE[c.type][1]), rar: t(RAR_NAME[c.rarity]), cost })}${cost > c.cost ? t('（被追問 +1）') : ''}${t(c.type === 'magic' ? '・不佔回合' : '・打出後換對手')}</div>
@@ -1281,11 +1381,11 @@ function onRoomMessage(data) {
   const key = `${game.round}-${game.current}`;
   if (key !== lastTurnKey) {
     lastTurnKey = key;
-    if (!game.over && game.current === me) toast(t('你的回合（第 {n} 回合）', { n: game.round }), me);
+    if (!game.over) turnBanner(t(game.current === me ? '你的回合' : '對手回合'), t('第 {r} / {m} 回合', { r: Math.min(game.round, RULES.maxRounds), m: RULES.maxRounds }), game.current, game.current !== me);
   }
   startOnlineTimer();
   syncPendingUI(v.respondDeadline);
-  if (game.over && !resultShown) setTimeout(showResult, 1200);
+  if (game.over && !resultShown) setTimeout(showResult, 2300);
 }
 
 // 依伺服器狀態開關質疑相關的彈窗

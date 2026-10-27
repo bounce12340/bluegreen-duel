@@ -503,3 +503,58 @@ html[lang="en"] .card .nm { overflow-wrap: anywhere; }
   border: 5px solid rgba(255,207,61,.95); background: rgba(255,230,140,.2); box-shadow: 0 0 30px rgba(255,207,61,.9); animation: domeIn 1.8s ease-out both; }
 @keyframes domeIn { 0% { transform: scale(.2); opacity: 0; } 30% { transform: scale(1.05); opacity: 1; } 80% { opacity: 1; } 100% { transform: scale(1.15); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .stage-fx .cf, .rain-fx { display: none; } }
+
+/* ── 卡牌手感（第一批）：類型色框、稀有度閃卡、新牌翻面、拖曳出牌、牌庫、回合橫幅、最後 5 秒、打擊停頓、勝負演出 ── */
+:root { --t-attack: #e2574c; --t-magic: #8b5cf6; --t-trap: #2a3a5c; --t-summon: #1f9a55; --t-field: #e0a100; --t-status: #0e9bb5; }
+.card, .big-card, #cast .cast-card { --tc: var(--gray); }
+.t-attack { --tc: var(--t-attack); } .t-magic { --tc: var(--t-magic); } .t-trap { --tc: var(--t-trap); }
+.t-summon { --tc: var(--t-summon); } .t-field { --tc: var(--t-field); } .t-status { --tc: var(--t-status); }
+/* 卡牌上緣一條類型色帶；類型小圖示底色同色 */
+.card::before, .big-card::before, #cast .cast-card::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--tc); z-index: 1; }
+.big-card, #cast .cast-card { position: relative; overflow: hidden; }
+.card .type { background: var(--tc); color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+/* 稀有：金色光暈；史詩：雷射閃卡 */
+.card.rare { box-shadow: 0 3px 0 rgba(0,0,0,.15), 0 0 0 1px #f2c14e inset; }
+.card.epic::after, .big-card.epic::after, #cast .cast-card.epic::after { content: ''; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: color-dodge; opacity: .55; z-index: 2;
+  background: linear-gradient(115deg, transparent 20%, rgba(255,120,200,.55) 32%, rgba(120,220,255,.55) 42%, rgba(255,240,140,.55) 52%, transparent 64%); background-size: 260% 100%; animation: foil 3.2s linear infinite; }
+.big-card.rare, #cast .cast-card.rare { box-shadow: 0 0 0 3px #f2c14e, 0 10px 30px rgba(242,193,78,.35); }
+@keyframes foil { from { background-position: 130% 0; } to { background-position: -130% 0; } }
+.card.cant.epic::after { opacity: .2; }
+/* 新抽到的牌翻面進場 */
+.card.drawn { animation: drawIn .55s cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes drawIn { 0% { transform: translateY(40%) rotateY(90deg) scale(.7); opacity: 0; } 60% { transform: translateY(-6%) rotateY(0) scale(1.05); opacity: 1; } 100% { transform: none; } }
+/* 拖曳出牌 */
+.card { touch-action: none; -webkit-user-select: none; user-select: none; }
+.card.ok { cursor: grab; }
+.card.lifted { opacity: .25; }
+.drag-ghost { position: fixed; z-index: 40; pointer-events: none; margin: 0; transform: rotate(-4deg) scale(1.12); box-shadow: 0 14px 30px rgba(0,0,0,.35); transition: none; }
+#battle.dragging::after { content: ''; position: absolute; left: 4%; right: 4%; top: 9%; bottom: calc(var(--dock-h) + 1%); z-index: 5; border: 3px dashed rgba(255,255,255,.7); border-radius: 22px; pointer-events: none; transition: background .15s, border-color .15s; }
+#battle.dragging.drop-ok::after { border-color: var(--gold, #ffcf3d); background: rgba(255,207,61,.14); }
+#battle.drag-opp.drop-ok #opp-mascot, #battle.drag-me.drop-ok #me-mascot { filter: drop-shadow(0 0 16px #ffcf3d) brightness(1.1); }
+/* 牌庫（無限牌庫，顯示 ∞） */
+.deck { position: relative; width: 30px; height: 40px; flex: 0 0 auto; }
+.deck i { position: absolute; inset: 0; border-radius: 5px; border: 2px solid #fff; background: repeating-linear-gradient(45deg, #2a3a5c 0 4px, #34476e 4px 8px); box-shadow: 0 2px 4px rgba(0,0,0,.25); }
+.deck i:nth-child(2) { transform: translate(2px, -2px); } .deck i:nth-child(3) { transform: translate(4px, -4px); }
+.deck b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ffcf3d; font-size: 15px; transform: translate(4px, -4px); }
+.deck.pulse { animation: deckPulse .35s ease-out; }
+@keyframes deckPulse { 50% { transform: scale(1.15); } }
+/* 回合開場橫幅 */
+#turn-banner { position: absolute; z-index: 11; left: 0; right: 0; top: 40%; display: flex; flex-direction: column; align-items: center; padding: 10px 0; pointer-events: none; color: #fff;
+  background: linear-gradient(90deg, transparent, var(--ink) 18%, var(--ink) 82%, transparent); animation: bannerSweep 1.45s cubic-bezier(.2,.8,.3,1) both; }
+#turn-banner.blue { background: linear-gradient(90deg, transparent, rgba(47,111,214,.95) 18%, rgba(47,111,214,.95) 82%, transparent); }
+#turn-banner.green { background: linear-gradient(90deg, transparent, rgba(31,154,85,.95) 18%, rgba(31,154,85,.95) 82%, transparent); }
+#turn-banner b { font-size: 30px; font-weight: 900; letter-spacing: 2px; text-shadow: 0 2px 0 rgba(0,0,0,.25); }
+#turn-banner span { font-size: 13px; opacity: .9; }
+#turn-banner.small { top: 30%; padding: 5px 0; } #turn-banner.small b { font-size: 20px; }
+@keyframes bannerSweep { 0% { transform: translateX(-100%); opacity: 0; } 18% { transform: none; opacity: 1; } 78% { transform: none; opacity: 1; } 100% { transform: translateX(60%); opacity: 0; } }
+/* 最後 5 秒：邊緣紅光 */
+#battle.urgent::before { content: ''; position: absolute; inset: 0; z-index: 10; pointer-events: none; box-shadow: inset 0 0 60px 14px rgba(226,87,76,.55); animation: urgent .5s ease-in-out infinite alternate; }
+@keyframes urgent { from { opacity: .35; } to { opacity: 1; } }
+/* 打擊停頓：所有動畫凍結一瞬間 */
+#battle.hitstop, #battle.hitstop * { animation-play-state: paused !important; }
+/* 勝負演出 */
+.mascot.champion { animation: champion .7s ease-in-out infinite alternate; filter: drop-shadow(0 0 22px #ffcf3d) brightness(1.08); }
+.mascot.defeated { filter: grayscale(.85) brightness(.8); transform: translateY(6%) scale(.94); transition: filter .8s, transform .8s; }
+@keyframes champion { from { transform: translateY(0) scale(1.03); } to { transform: translateY(-5%) scale(1.07); } }
+.fx-confetti { position: absolute; width: 8px; height: 13px; border-radius: 2px; }
+@media (min-aspect-ratio: 4/3) and (min-width: 600px) and (min-height: 320px) { .deck { width: 38px; height: 52px; } #turn-banner b { font-size: 40px; } }

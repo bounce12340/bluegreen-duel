@@ -159,6 +159,7 @@ const DICT = {
   '你的陷阱被翻開了：{list}': 'Your traps were revealed: {list}',
   '對手的陷阱翻開了：{list}': 'Opponent\'s traps revealed: {list}',
   '你的回合（第 {n} 回合）': 'Your turn (round {n})',
+  你的回合: 'Your turn', 對手回合: 'Opponent\'s turn',
   '跳過，行程點 {n} 點存著': 'Skipped. {n} action points saved',
   '時間到，自動跳過': 'Time\'s up. Turn skipped',
   '對手跳過，存了 {n} 點行程點': 'Opponent skipped and saved {n} action points',

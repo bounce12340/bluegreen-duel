@@ -201,6 +201,7 @@ export function playFx(ev, ctx) {
       case 'burst': flameRing(key(ev.side)); break;
       case 'ult': ultFx(ev.ult, key(ev.side), key(other(ev.side)), ev.side); break;
       case 'challenge': stamp(key(ev.caught ? other(ev.side) : ev.side), ev.caught ? '🚨' : '❌'); break;
+      case 'draw': drawCard(key(ev.side), ev.side); break;
       default: break;
     }
   } catch (e) { console.warn('特效播放失敗', e); }
@@ -322,4 +323,45 @@ function ultFx(id, k, ok, side) {
     }
     default: break;
   }
+}
+
+// 抽牌：我方從牌庫飛進手牌，對手的牌飛向對手人偶
+let drawQueue = 0;
+function drawCard(k, side) {
+  const deck = $('#deck');
+  if (!deck) return;
+  const d = rectOf('#deck');
+  const to = k === 'me' ? { x: rectOf('#hand').x + rectOf('#hand').w * (0.5 + 0.1 * (drawQueue % 3)), y: rectOf('#hand').cy } : body('opp');
+  const delay = (drawQueue++ % 4) * 120;
+  setTimeout(() => { drawQueue = Math.max(0, drawQueue - 1); }, 600);
+  deck.classList.remove('pulse'); void deck.offsetWidth; deck.classList.add('pulse');
+  fly(`<i class="mini-card ${side}"></i>`, { x: d.cx, y: d.cy }, to, { dur: 600, delay, arc: k === 'me' ? -40 : -80, scale: 1.4 });
+}
+
+// 勝負演出：勝方滿場彩帶、人偶跳起來；敗方人偶變灰下沉
+export function victory(winKey, side) {
+  if (!layer) return;
+  const win = winKey === 'me' ? '#me-mascot' : '#opp-mascot', lose = winKey === 'me' ? '#opp-mascot' : '#me-mascot';
+  $(win).classList.add('champion');
+  $(lose).classList.add('defeated');
+  if (reduced()) return;
+  const W = battle.clientWidth, H = battle.clientHeight;
+  const colors = side === 'blue' ? ['#2f6fd6', '#8db6ff', '#ffcf3d', '#fff'] : ['#1f9a55', '#8fe3b3', '#ffcf3d', '#fff'];
+  for (let i = 0; i < 60; i++) {
+    const c = el('fx-confetti');
+    c.style.background = colors[i % colors.length];
+    c.style.left = `${Math.random() * W}px`;
+    c.style.top = '-20px';
+    layer.appendChild(c);
+    const drift = (Math.random() - 0.5) * 160;
+    const a = c.animate([
+      { transform: 'translate(0,0) rotate(0)', opacity: 1 },
+      { transform: `translate(${drift}px, ${H + 40}px) rotate(${720 * (Math.random() > 0.5 ? 1 : -1)}deg)`, opacity: 0.9 },
+    ], { duration: 1800 + Math.random() * 1200, delay: Math.random() * 600, easing: 'cubic-bezier(.3,.5,.6,1)', fill: 'both' });
+    a.onfinish = () => c.remove();
+  }
+  rays(winKey, side);
+}
+export function clearVictory() {
+  for (const sel of ['#me-mascot', '#opp-mascot']) { const m = $(sel); if (m) m.classList.remove('champion', 'defeated'); }
 }
