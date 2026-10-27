@@ -7,6 +7,7 @@ import {
 } from './engine.js';
 import { aiStep, respondDecision, newProfile, observeEvents, EASE_NAMES, EASE_MAX } from './ai.js';
 import { createCrowd } from './crowd.js';
+import { initFx, syncBoard, playFx } from './fx.js';
 import { unlock, sfx, isMuted, setMuted, setRemoteVolume } from './sound.js';
 import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
 import { checkName, cleanName, NAME_MAX } from './names.js';
@@ -102,6 +103,7 @@ async function init() {
   $('#ult-btn').addEventListener('click', openUlt);
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && !$('#modal').dataset.locked) closeModal(); });
   updateMuteIcon();
+  initFx();
   setupEncoreRemote();
 }
 
@@ -192,7 +194,7 @@ function infoHTML(side, mine) {
   });
   for (const sm of p.summons) chips.push(`<span class="chip good">👥${esc(nameEN(sm.name))}×${sm.turns}</span>`);
   if (p.traps.length) {
-    const shown = p.traps.filter((x) => x && x.name).map((x) => nameEN(x.name));
+    const shown = mine || (mode === 'local' && !hasStatus(p, 'exposed')) ? [] : p.traps.filter((x) => x && x.name).map((x) => nameEN(x.name));
     chips.push(mine || !shown.length
       ? `<span class="chip">${t('🪤蓋牌×{n}', { n: p.traps.length })}</span>`
       : `<span class="chip bad">🔍${listJoin(shown.map(esc))}</span>`);
@@ -251,6 +253,7 @@ function render() {
   }
   for (let i = mp.hand.length; i < RULES.handMax; i++) hand.insertAdjacentHTML('beforeend', '<div></div>');
 
+  syncBoard(game, me, opp);
   $('#end-btn').disabled = !isMyTurn();
   $('#ult-btn').classList.toggle('hidden', !(isMyTurn() && canBurst(game, me)));
 }
@@ -423,6 +426,7 @@ function shake() {
 function fxEvent(ev) {
   {
     const who = t(ev.side === me ? '我方' : '對手');
+    playFx(ev, { me, opp, card: (id) => CARD_BY_ID[id] });
     switch (ev.type) {
       case 'play': break; // 已在展示卡牌時處理
       case 'pull':
@@ -991,6 +995,7 @@ function goHome() {
   clearInterval(timerId);
   busy = false;
   game = null;
+  syncBoard(null);
   crowd.stop();
   closeModal();
   show('title');
