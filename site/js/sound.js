@@ -11,6 +11,12 @@ export function unlock() {
   }
   if (ctx && ctx.state === 'suspended') ctx.resume();
 }
+// 台北安可電視台遙控器的音量（0～1）與靜音：只在這次瀏覽有效，不改玩家自己存的靜音設定
+let remoteVolume = 1, remoteMuted = false;
+export function setRemoteVolume(volume, mutedFlag) {
+  if (typeof volume === 'number' && Number.isFinite(volume)) remoteVolume = Math.max(0, Math.min(1, volume));
+  if (typeof mutedFlag === 'boolean') remoteMuted = mutedFlag;
+}
 export const isMuted = () => muted;
 export function setMuted(v) {
   muted = v;
@@ -18,7 +24,8 @@ export function setMuted(v) {
 }
 
 function tone(freq, dur, { type = 'sine', vol = 0.18, delay = 0, slide = 0 } = {}) {
-  if (muted || !ctx) return;
+  if (muted || remoteMuted || remoteVolume <= 0 || !ctx) return;
+  vol *= remoteVolume;
   const t0 = ctx.currentTime + delay;
   const o = ctx.createOscillator();
   const g = ctx.createGain();

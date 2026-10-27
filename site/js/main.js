@@ -7,7 +7,7 @@ import {
 } from './engine.js';
 import { aiStep, respondDecision, newProfile, observeEvents, EASE_NAMES, EASE_MAX } from './ai.js';
 import { createCrowd } from './crowd.js';
-import { unlock, sfx, isMuted, setMuted } from './sound.js';
+import { unlock, sfx, isMuted, setMuted, setRemoteVolume } from './sound.js';
 import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
 import { checkName, cleanName, NAME_MAX } from './names.js';
 import { pickChatter, TONE_TAG } from './chatter.js';
@@ -93,6 +93,31 @@ async function init() {
   $('#ult-btn').addEventListener('click', openUlt);
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && !$('#modal').dataset.locked) closeModal(); });
   updateMuteIcon();
+  setupEncoreRemote();
+}
+
+// ── 台北安可電視台（被 iframe 嵌入時）：遙控器音量、彩色鍵、← → 轉台 ────────
+// 只接受「嵌入我們的那一層」送來的訊息；彩色鍵只開選單類畫面，不會替玩家出牌
+function setupEncoreRemote() {
+  if (window.parent === window) return;
+  window.addEventListener('message', (e) => {
+    if (e.source !== window.parent) return;
+    const d = e.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.type === 'encore:volume') setRemoteVolume(d.volume, d.muted);
+    if (d.type === 'encore:color') {
+      const inBattle = !$('#battle').classList.contains('hidden');
+      if (d.color === 'red') openRules();
+      if (d.color === 'green' && inBattle) openMenu();
+      if (d.color === 'yellow') openReport();
+      if (d.color === 'blue') { toggleMute(); toast(isMuted() ? '已靜音' : '已開啟音效'); }
+    }
+  });
+  window.addEventListener('keydown', (e) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return; // 打字時不轉台
+    window.parent.postMessage({ type: 'encore:key', key: e.key }, '*');
+  });
 }
 
 // ── 開局 ─────────────────────────────────

@@ -1,8 +1,9 @@
+# 只允許台北安可電視台（encore.taipei）用 iframe 嵌入，其他網站一律不行
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
-  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' wss://bluegreen-duel.pages.dev wss://*.bluegreen-duel.pages.dev; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' wss://bluegreen-duel.pages.dev wss://*.bluegreen-duel.pages.dev; base-uri 'self'; form-action 'none'; frame-ancestors 'self' https://encore.taipei https://*.encore.taipei
 
 /index.html
   Cache-Control: no-cache
