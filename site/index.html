@@ -48,7 +48,10 @@
 
   <!-- 對戰 -->
   <section id="battle" class="screen hidden">
-    <img class="bg" src="assets/bg_cityhall.webp" alt="">
+    <picture>
+      <source media="(min-aspect-ratio: 4/3) and (min-width: 820px) and (min-height: 520px)" srcset="assets/bg_cityhall_wide.webp">
+      <img class="bg" src="assets/bg_cityhall.webp" alt="">
+    </picture>
     <canvas id="crowd"></canvas>
 
     <div class="topbar">

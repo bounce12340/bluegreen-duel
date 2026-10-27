@@ -261,3 +261,51 @@ body.in-battle #footer { display: none; }
 .bubble.threads-bubble { background: rgba(255,255,255,.95); color: #111; border: 1px solid #e3e3e3; display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 .bubble.threads-bubble b { font-weight: 800; margin-right: 2px; }
 .bubble.threads-bubble .avatar { width: 18px; height: 18px; }
+
+/* ── 寬螢幕（電腦、平板橫放）：16:9 介面 ──────────────────────────
+   直式手機不受影響。比 16:9 更寬的螢幕（超寬螢幕）左右留邊，畫面維持 16:9。 */
+@media (min-aspect-ratio: 4/3) and (min-width: 820px) and (min-height: 520px) {
+  :root { --dock-h: min(34dvh, 300px); }
+  html, body { background: #9fc3ea; }
+  #app { max-width: calc(100dvh * 16 / 9); box-shadow: 0 0 40px rgba(0,0,0,.18); }
+
+  /* 首頁：背景換寬版，內容置中 */
+  .title-bg { background-image: url(../assets/bg_cityhall_wide.webp); background-position: center 30%; }
+  .title-bg::after { background: linear-gradient(to bottom, rgba(255,255,255,0) 30%, rgba(255,253,248,.92) 72%); }
+  .title-panel { max-width: 640px; margin: 0 auto; padding-bottom: 64px; }
+  .logo { font-size: clamp(56px, 8dvh, 84px); }
+  .tagline { font-size: 18px; }
+  .pick-btn img { height: min(20dvh, 170px); }
+
+  /* 對戰：雙方站在左右兩側，手牌置中在下方 */
+  .mascot { translate: -50% 0; }
+  .mascot.opp { left: 76%; right: auto; top: 25%; height: 25%; }
+  .opp-plat { left: 76%; right: auto; translate: -50% 0; top: 47.5%; width: 28dvh; height: 4.5dvh; }
+  .mascot.me { left: 22%; bottom: calc(var(--dock-h) - 1%); height: 40%; }
+  .me-plat { left: 22%; translate: -50% 0; bottom: calc(var(--dock-h) - 3.5%); width: 40dvh; height: 7dvh; }
+
+  .info { width: 320px; font-size: 13px; }
+  .info.opp { left: 3%; top: calc(56px + env(safe-area-inset-top)); }
+  .info.me { right: 3%; bottom: calc(var(--dock-h) + 12px); }
+  .info .who { font-size: 15px; } .info .count { font-size: 20px; }
+  .topbar { font-size: 15px; padding-left: 16px; padding-right: 16px; }
+
+  .dock { align-items: center; padding-left: 16px; padding-right: 16px; }
+  .dock-row, .hand { width: 100%; max-width: 1100px; }
+  .hand { display: flex; justify-content: center; align-items: flex-end; gap: 10px; max-height: none; flex: 0 0 auto; }
+  .hand .card { flex: 0 1 clamp(150px, 10.5vw, 210px); min-width: 0; }
+  .card { border-radius: 12px; padding: 4px 4px 6px; }
+  .card .art { aspect-ratio: 4 / 3; }
+  .card .nm { font-size: 14px; } .card .tx { font-size: 12px; -webkit-line-clamp: 3; }
+  .card .cost { width: 26px; height: 26px; font-size: 14px; line-height: 22px; }
+  .card:not(.cant):hover { transform: translateY(-6px); box-shadow: 0 8px 0 rgba(0,0,0,.12); }
+  .ap { font-size: 14px; } .ap i { width: 14px; height: 14px; }
+
+  .float-num { font-size: 44px; } .float-num.bad { font-size: 36px; }
+  .bubble { font-size: 16px; }
+  #toasts { width: min(70%, 720px); }
+  .toast { font-size: 16px; } .toast.big { font-size: 24px; }
+
+  #cast .cast-card { width: min(42dvh, 340px); }
+  .modal-box { max-width: 560px; }
+}

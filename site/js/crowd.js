@@ -18,6 +18,12 @@ const ZONES = {
   n: [0.04, 0.96, 0.455, 0.53],
   me: [0.42, 0.99, 0.54, 0.605],
 };
+// 寬螢幕（16:9）：對手站右側、我方站左側，群眾往畫面中間聚集，不擋到兩邊的角色
+const ZONES_WIDE = {
+  opp: [0.48, 0.66, 0.50, 0.55],
+  n: [0.30, 0.70, 0.555, 0.61],
+  me: [0.36, 0.62, 0.615, 0.665],
+};
 
 export function createCrowd(canvas) {
   const ctx = canvas.getContext('2d');
@@ -35,7 +41,7 @@ export function createCrowd(canvas) {
   function genSpots() {
     for (const z of ['n', 'me', 'opp']) {
       const r = seeded(z === 'n' ? 7 : z === 'me' ? 11 : 13);
-      const [x0, x1, y0, y1] = ZONES[z];
+      const [x0, x1, y0, y1] = (W / H > 1.25 ? ZONES_WIDE : ZONES)[z];
       spots[z] = Array.from({ length: 100 }, () => ({ x: (x0 + (x1 - x0) * r()) * W, y: (y0 + (y1 - y0) * r()) * H }));
     }
   }
