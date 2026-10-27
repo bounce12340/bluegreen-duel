@@ -57,6 +57,12 @@ const W = {
   future: 0.5,        // 留在手上的牌，未來價值打折
 };
 
+// ── 難度（只用在對戰電腦）──────────────────────
+// ease 0＝全力；1～3 越來越手下留情：偶爾出次佳的牌、少吹牛、少質疑。
+// 由玩家的戰績自動調整（main.js 問 Jev「玩家是不是快放棄了」，程式決定升降）。
+export const EASE_NAMES = ['標準', '溫和', '很溫和', '新手'];
+export const EASE_MAX = EASE_NAMES.length - 1;
+
 // ── 對手習慣紀錄 ──────────────────────────────
 export function newProfile() {
   return { bluffs: 0, honest: 0, challenges: 0, passes: 0, games: 0 };
@@ -108,7 +114,7 @@ export function aiTakeTurn(s, side, { autoEnd = true, profiles = null } = {}) {
 }
 
 // 只做一個動作，讓畫面可以一步一步播放；沒事可做時回傳 null（＝跳過）
-export function aiStep(s, side, profile = null) {
+export function aiStep(s, side, profile = null, { ease = 0 } = {}) {
   if (s.over || s.current !== side) return null;
   if (canBurst(s, side)) {
     const u = chooseUlt(s, side);
@@ -122,8 +128,15 @@ export function aiStep(s, side, profile = null) {
     if (c.type !== 'magic' || !canPlay(s, side, c.uid)) continue;
     if (cardValue(s, side, c) >= 2) { playCard(s, side, c.uid); return { kind: 'play', uid: c.uid, id: c.id }; }
   }
-  const best = bestMainCard(s, side);
-  const decl = planDeclare(s, side, best, profile);
+  let best = bestMainCard(s, side);
+  // 放水：有一定機率改出隨便一張打得出的牌，而且這回合不蓋牌
+  if (ease > 0 && best && rand(s) < 0.12 * ease) {
+    const ok = me.hand.filter((c) => c.type !== 'magic' && canPlay(s, side, c.uid));
+    best = ok[Math.floor(rand(s) * ok.length)] || best;
+    playCard(s, side, best.uid);
+    return { kind: 'play', uid: best.uid, id: best.id, eased: true };
+  }
+  const decl = planDeclare(s, side, best, profile, ease);
   if (decl) {
     declareCard(s, side, decl.uid, decl.asId);
     return { kind: 'declare', uid: decl.uid, asId: decl.asId, why: decl.why };
@@ -160,7 +173,7 @@ function shouldSave(s, side, best) {
 
 // 要不要蓋牌宣告：比較「正常打出」「蓋著說實話（釣質疑）」「拿爛牌吹牛」三種做法的期望值。
 // 為了節奏，只有部分回合會考慮蓋牌（不然每回合都跳質疑視窗）。
-function planDeclare(s, side, best, profile) {
+function planDeclare(s, side, best, profile, ease = 0) {
   if (!canDeclareAny(s, side)) return null;
   const me = s.players[side];
   const opp = s.players[side === 'blue' ? 'green' : 'blue'];
@@ -191,18 +204,18 @@ function planDeclare(s, side, best, profile) {
   const top = options.reduce((a, b) => (b.ev > a.ev ? b : a));
   if (top.ev < evPlain + 0.5) return null;
   // 節奏：大約三成的回合才蓋牌；明顯划算時（差距大）多一點
-  const gate = Math.min(0.5, 0.18 + 0.04 * (top.ev - evPlain));
+  const gate = Math.min(0.5, 0.18 + 0.04 * (top.ev - evPlain)) * (1 - 0.25 * ease);
   if (rand(s) >= gate) return null;
   return top;
 }
 
 // 面對對手的蓋牌宣告要不要質疑：估計對手吹牛的機率 p，比較質疑與放行的期望值。
 // profile：對手的歷史紀錄；jevBluff：Jev 對「這次像不像吹牛」的判斷（0–1），沒有就只用歷史。
-export function aiRespond(s, side, { profile = null, jevBluff = null } = {}) {
-  return respondDecision(s, side, { profile, jevBluff }).challenge;
+export function aiRespond(s, side, { profile = null, jevBluff = null, ease = 0 } = {}) {
+  return respondDecision(s, side, { profile, jevBluff, ease }).challenge;
 }
 
-export function respondDecision(s, side, { profile = null, jevBluff = null } = {}) {
+export function respondDecision(s, side, { profile = null, jevBluff = null, ease = 0 } = {}) {
   const pd = s.pending;
   if (!pd) return { challenge: false };
   const as = CARD_BY_ID[pd.asId];
@@ -225,5 +238,6 @@ export function respondDecision(s, side, { profile = null, jevBluff = null } = {
     - W.apPoint;
   // 期望值相近時加一點隨機，不要被摸透
   const noise = (rand(s) - 0.5) * 0.8;
-  return { challenge: evChallenge > noise, p, pHist, wJev, ev: evChallenge };
+  // 放水：要更有把握才質疑（ease 3 時差不多只在明顯吹牛時才抓）
+  return { challenge: evChallenge > noise + 1.5 * ease, p, pHist, wJev, ev: evChallenge };
 }

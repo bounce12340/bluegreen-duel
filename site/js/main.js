@@ -5,7 +5,7 @@ import {
   canBurst, enterBurst, useUlt, neutral, hasStatus,
   CARD_BY_ID, canDeclareAny, canDeclare, declareCard, declarableCards, respond,
 } from './engine.js';
-import { aiStep, respondDecision, newProfile, observeEvents } from './ai.js';
+import { aiStep, respondDecision, newProfile, observeEvents, EASE_NAMES, EASE_MAX } from './ai.js';
 import { createCrowd } from './crowd.js';
 import { unlock, sfx, isMuted, setMuted } from './sound.js';
 import { fetchStatus, getPid, wsUrl, getTurnstileToken } from './online.js';
@@ -25,7 +25,7 @@ const RAR_NAME = { common: '普通', rare: '稀有', epic: '史詩' };
 let game = null, me = 'blue', opp = 'green', busy = false, timerId = null, timeLeft = 0, gen = 0;
 // 出牌演出：卡牌先放大展示，結束後才更新比分與群眾
 let fxChain = Promise.resolve(), holdBoard = false, animating = 0, castSkip = null;
-const art = (id) => `assets/cards/${id}.webp`;
+const art = (id) => `assets/cards/${CARD_BY_ID[id]?.art || id}.webp`; // 時事卡沒有專屬插圖時用通用圖
 // 電腦記住「你」的習慣（被抓過幾次吹牛、多常質疑），存在這台裝置的瀏覽器，跨局累積
 let profile = loadProfile();
 let humanSkippedLast = false;
@@ -33,6 +33,15 @@ function loadProfile() {
   try { return { ...newProfile(), ...JSON.parse(localStorage.getItem('bg_profile') || '{}') }; } catch { return newProfile(); }
 }
 function saveProfile() { try { localStorage.setItem('bg_profile', JSON.stringify(profile)); } catch { /* 忽略 */ } }
+// 電腦強度（0＝標準，越大越放水）與最近幾局戰績，存在這台裝置；依戰績自動調整
+let ease = loadJSON('bg_ease', 0);
+let mood = loadJSON('bg_mood', { recent: [], games: 0 });
+let gameStats = null;   // 這一局：{ skips, timeouts, startedAt }
+let easeNotice = '';    // 下一局開始時要顯示的提示
+function loadJSON(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } }
+function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 忽略 */ } }
+if (!Number.isInteger(ease) || ease < 0 || ease > EASE_MAX) ease = 0;
+if (!mood || !Array.isArray(mood.recent)) mood = { recent: [], games: 0 };
 // 連線模式狀態
 let mode = 'local';          // 'local' 對戰電腦｜'online' 連線
 let server = { online: false };
@@ -75,7 +84,9 @@ async function init() {
     const saved = JSON.parse(sessionStorage.getItem('bg_room') || 'null');
     if (saved && server.online && Date.now() - saved.at < 25 * 60_000) connectRoom(saved.code, saved.name);
   } catch { /* 忽略 */ }
-  for (const b of document.querySelectorAll('[data-open]')) b.addEventListener('click', () => (b.dataset.open === 'rules' ? openRules() : openPrivacy()));
+  for (const b of document.querySelectorAll('[data-open]')) {
+    b.addEventListener('click', () => ({ rules: () => openRules(), privacy: openPrivacy, report: openReport }[b.dataset.open] || openPrivacy)());
+  }
   $('#mute').addEventListener('click', toggleMute);
   $('#menu').addEventListener('click', openMenu);
   $('#end-btn').addEventListener('click', () => { if (isMyTurn()) endMyTurn(); });
@@ -117,11 +128,13 @@ function startGame(side) {
   mode = 'local';
   names = { blue: null, green: null };
   const disabled = [...CONFIG.disabledCards, ...(server.disabledCards || [])];
-  game = createGame({ seed: Math.floor(Math.random() * 2 ** 31), disabledCards: disabled });
+  game = createGame({ seed: Math.floor(Math.random() * 2 ** 31), disabledCards: disabled, today: taipeiToday() });
+  gameStats = { skips: 0, timeouts: 0, startedAt: Date.now() };
   setupBattle(side);
   takeEvents(game); // 開局抽牌的事件不用播
   render();
   toast(game.first === me ? '你是先手！' : '對手先手，你多拿 1 張牌和 30 聲量', me, true);
+  if (easeNotice) { const n = easeNotice; easeNotice = ''; setTimeout(() => toast(n, opp, true), 1400); }
   maybeShowHelp();
   nextPhase();
 }
@@ -498,6 +511,7 @@ async function endMyTurn() {
   clearInterval(timerId);
   const saved = game.players[me].ap;
   humanSkippedLast = true;
+  if (gameStats) { if (timeLeft > 0) gameStats.skips += 1; else gameStats.timeouts += 1; }
   endTurn(game);
   toast(timeLeft > 0 ? `跳過，行程點 ${saved} 點存著` : '時間到，自動跳過', me);
   chatter('skip');
@@ -518,7 +532,7 @@ async function runAI() {
   for (let i = 0; i < 6; i++) {
     if (myGen !== gen || game.over) return;
     if (game.current !== opp) break; // 主牌打完已經換人
-    const a = aiStep(game, opp, profile);
+    const a = aiStep(game, opp, profile, { ease });
     if (!a) break;
     render();
     await playEvents();
@@ -634,7 +648,7 @@ async function doDeclare(uid, asId) {
   showWaitingRespond(Date.now() + 1800);
   const [jevBluff] = await Promise.all([jevAsk, sleep(1300 + Math.random() * 900)]); // 電腦想一下
   if (myGen !== gen || !game || !game.pending) return;
-  const d = respondDecision(game, opp, { profile, jevBluff });
+  const d = respondDecision(game, opp, { profile, jevBluff, ease });
   respond(game, opp, d.challenge);
   toast(`電腦研判你吹牛的機率：${Math.round(d.p * 100)}%${d.wJev ? '（含 Jev 判斷）' : ''}`, opp);
   closeModal();
@@ -657,6 +671,65 @@ async function askJevBluff(facts) {
     return typeof d.bluff === 'number' ? d.bluff : null;
   } catch (e) {
     console.warn('Jev 判斷失敗，這次改用歷史紀錄：', e.message || e);
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// ── 電腦強度自動調整（只在對戰電腦）────────────────
+// 每局結束（或中途離開）記一筆戰績，問 Jev「玩家是不是快放棄了」「電腦是不是太好打」，
+// 由這裡的規則決定升降一級。Jev 失敗時改用簡單規則，不把失敗當成判斷結果。
+function recordGame(result) {
+  if (mode !== 'local' || !game || !gameStats) return;
+  const st = gameStats;
+  gameStats = null; // 一局只記一次
+  mood.recent.push({
+    r: result,
+    margin: game.players[me].supporters - game.players[opp].supporters,
+    rounds: Math.min(Math.max(game.round, 1), RULES.maxRounds),
+    skips: Math.min(st.skips, 12), timeouts: Math.min(st.timeouts, 12),
+    minutes: Math.min(120, Math.round((Date.now() - st.startedAt) / 60000)),
+  });
+  mood.recent = mood.recent.slice(-8);
+  mood.games = Math.min(10000, (mood.games || 0) + 1);
+  saveJSON('bg_mood', mood);
+  adjustDifficulty();
+}
+
+async function adjustDifficulty() {
+  const before = ease;
+  let next = ease;
+  const read = await askJevMood();
+  if (read) {
+    if (read.frustrated >= 0.6 && read.tooEasy < 0.5) next = ease + 1;
+    else if (read.tooEasy >= 0.6 && read.frustrated < 0.5) next = ease - 1;
+  } else {
+    const last = mood.recent.slice(-3);
+    if (last.length === 3 && last.every((g) => g.r === 'loss' || g.r === 'quit')) next = ease + 1;
+    else if (mood.recent.slice(-2).length === 2 && mood.recent.slice(-2).every((g) => g.r === 'win')) next = ease - 1;
+  }
+  ease = Math.max(0, Math.min(EASE_MAX, next));
+  saveJSON('bg_ease', ease);
+  if (ease > before) easeNotice = `電腦這局會手下留情一點（強度：${EASE_NAMES[ease]}）`;
+  else if (ease < before) easeNotice = ease === 0 ? '你變強了！電腦恢復全力' : `電腦認真一點了（強度：${EASE_NAMES[ease]}）`;
+}
+
+// 只送遊戲數字；失敗或逾時回傳 null
+async function askJevMood() {
+  if (!server.jev) return null;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 5000);
+  try {
+    const r = await fetch('/api/ai/mood', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, signal: ctrl.signal,
+      body: JSON.stringify({ recent: mood.recent, ease, games: mood.games }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    return typeof d.frustrated === 'number' && typeof d.tooEasy === 'number' ? d : null;
+  } catch (e) {
+    console.warn('Jev 心情判斷失敗，改用簡單規則：', e.message || e);
     return null;
   } finally {
     clearTimeout(t);
@@ -779,9 +852,12 @@ function openPrivacy() {
     <p>不需註冊，不蒐集姓名、電子郵件或其他聯絡資料。</p>
     <p><b>連線對戰</b>時，伺服器會暫存你輸入的暱稱、隨機產生的玩家識別碼與對局內容，只用來進行這一局；對局結束約 1 分鐘後刪除。暱稱會顯示給對手。</p>
     <p><b>暱稱審核</b>：你輸入的暱稱會送到 TypeSafe 的 Jev 模型，判斷是否冒充真實人物或官方、罵人、歧視或拉票。審核結果（只有暱稱與通過與否）在伺服器保存 7 天，避免重複審核。請不要在暱稱裡放個人資料。</p>
+    <p><b>回報問題</b>：你寫的回報內容會送到 TypeSafe 的 Jev 模型自動分類；勾選時另附這局的遊戲數字與瀏覽器種類（例如 Safari、iOS、是否在 LINE 裡開啟），不含 IP 或任何識別資料。回報最多保存 7 天，彙整寄給作者後刪除。</p>
     <p><b>聯絡信箱</b>：寄到聯絡信箱的信，主旨與內文會送到 TypeSafe 的 Jev 模型自動分類（例如下架要求、錯誤回報），寄件人地址不會送出；需要處理的信會轉寄給作者本人。</p>
     <p>你的瀏覽器會在你的裝置上記住：是否靜音、是否看過教學、上次用的暱稱、進行中對局的識別碼（關閉分頁即清除），以及<b>你對戰電腦時的出牌習慣統計</b>（被抓到吹牛幾次、多常質疑），讓電腦學著猜你。這些統計只存在你的裝置上。</p>
     <p><b>對戰電腦時</b>，你蓋牌宣告的當下，伺服器可能把<b>遊戲數字</b>（回合、雙方人數、宣告的卡、上述習慣統計）送到 TypeSafe 的 Jev 模型，請它判斷你像不像在吹牛。送出的資料不含暱稱、IP 或任何個人資料。</p>
+    <p><b>電腦強度</b>：每局對戰電腦結束後，伺服器會把<b>最近幾局的遊戲數字</b>（勝負、人數差距、回合數、跳過與逾時次數、局長）送到 TypeSafe 的 Jev 模型，判斷要不要讓電腦放水。不含暱稱、IP 或任何個人資料；戰績統計只存在你的裝置上。</p>
+    <p><b>防機器人</b>：線上對戰時，伺服器會記錄你每個動作的反應時間（毫秒），對局結束後把<b>統計數字</b>（平均、最快、變化程度、近一小時場數）送到 TypeSafe 的 Jev 模型，判斷操作像不像腳本。被判定可疑時，會要求做一次真人驗證或暫停線上對戰一段時間。送出的資料不含暱稱、IP 或玩家識別碼。IP 只以每天更換的雜湊值暫存在伺服器記憶體，用來計算近一小時的場數；可疑標記只記在隨機玩家識別碼上，最多保留 24 小時。</p>
     <p>網站與連線伺服器由 Cloudflare 託管。Cloudflare 會為了安全與維運記錄連線資訊（例如 IP 位址），依其隱私權政策處理；若啟用真人驗證（Cloudflare Turnstile），也適用其隱私權政策。本站自行記錄的連線資訊保存不超過 30 天。本站沒有使用廣告或追蹤工具。</p>
     <p>問題或要求：<a href="mailto:${CONFIG.CONTACT_EMAIL}">${CONFIG.CONTACT_EMAIL}</a></p>
     <p class="small">本作為政治諷刺娛樂，非任何候選人、政黨或競選團隊製作，內容不代表當事人言行。角色為原創 Q 版人偶，美術由 AI 生成。</p>
@@ -794,16 +870,62 @@ function openMenu() {
     <div class="btns" style="flex-direction:column">
       <button class="btn" id="m-rules">怎麼玩</button>
       <button class="btn" id="m-priv">隱私聲明</button>
+      <button class="btn" id="m-report">回報問題</button>
       <button class="btn" id="m-home">${mode === 'online' && game && !game.over ? '離開（30 秒後判負）' : '回首頁（放棄這局）'}</button>
       <button class="btn primary" id="m-ok">繼續</button>
-    </div>`, { pause: true });
+    </div>
+    <p class="small center">電腦強度：${EASE_NAMES[ease]}（依你的戰績自動調整）
+      ${ease > 0 ? '<button class="link" id="m-ease">改回標準</button>' : ''}</p>`, { pause: true });
+  if ($('#m-ease')) $('#m-ease').onclick = () => { ease = 0; saveJSON('bg_ease', 0); easeNotice = '下一局電腦恢復全力'; openMenu(); };
   $('#m-rules').onclick = () => openRules();
   $('#m-priv').onclick = openPrivacy;
+  $('#m-report').onclick = openReport;
   $('#m-home').onclick = goHome;
   $('#m-ok').onclick = closeModal;
 }
 
+// ── 回報問題 ───────────────────────────────
+// 回報內容會送 TypeSafe 的 Jev 分類；可附上這局的遊戲狀態（數字與瀏覽器種類，不含任何識別資料）
+function reportDiag() {
+  const ua = navigator.userAgent;
+  const inApp = /Line\//i.test(ua) ? 'LINE' : /FBAN|FBAV/i.test(ua) ? 'Facebook' : /Instagram/i.test(ua) ? 'Instagram' : 'no';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Firefox|FxiOS/.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'other';
+  const os = /iPhone|iPad|iPod/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : 'other';
+  const d = { mode, browser, os, inApp, viewport: `${innerWidth}x${innerHeight}`, ease };
+  if (game) Object.assign(d, { side: me, round: game.round, blue: game.players.blue.supporters, green: game.players.green.supporters, over: !!game.over, pending: !!game.pending });
+  return d;
+}
+
+function openReport() {
+  openModal(`<h2>回報問題</h2>
+    <p class="small">遇到錯誤、覺得某張卡不妥，或有任何建議，都可以寫在這裡。請不要寫姓名、電話等個人資料。</p>
+    <textarea id="m-text" class="input" rows="5" maxlength="1000" placeholder="例如：第 3 回合按了跳過，畫面就卡住不動" style="min-height:120px;padding:10px 12px;resize:vertical"></textarea>
+    <label class="small" style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="m-diag" checked>附上這局的遊戲狀態與瀏覽器種類（幫助找錯誤）</label>
+    <p class="small err" id="m-err"></p>
+    <p class="small">回報內容會送到 TypeSafe 的 Jev 模型自動分類，需要處理的會轉給作者。</p>
+    <div class="btns"><button class="btn" id="m-cancel">取消</button><button class="btn primary" id="m-send">送出</button></div>`, { pause: true });
+  $('#m-cancel').onclick = closeModal;
+  $('#m-send').onclick = async () => {
+    const text = $('#m-text').value.trim();
+    if ([...text].length < 2) { $('#m-err').textContent = '請寫下遇到的問題'; return; }
+    $('#m-send').disabled = true;
+    try {
+      const r = await fetch('/api/report', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, diag: $('#m-diag').checked ? reportDiag() : {} }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || '送出失敗，請稍後再試');
+      notice('收到了，謝謝你的回報！');
+    } catch (e) {
+      $('#m-err').textContent = e.message && !/fetch/i.test(e.message) ? e.message : `送出失敗，也可以寄信到 ${CONFIG.CONTACT_EMAIL}`;
+      $('#m-send').disabled = false;
+    }
+  };
+}
+
 function goHome() {
+  if (mode === 'local' && game && !game.over) recordGame('quit');
   gen += 1;
   leaveOnline();
   mode = 'local';
@@ -825,6 +947,7 @@ function showResult() {
   const b = game.players.blue.supporters, g = game.players.green.supporters;
   const won = w === me;
   if (w === 'draw') sfx.lose(); else if (won) sfx.win(); else sfx.lose();
+  recordGame(w === 'draw' ? 'draw' : won ? 'win' : 'loss');
   setOppFace(w === opp ? 'win' : w === me ? 'lose' : 'idle');
   const img = w === 'draw' ? `${me}_idle` : won ? `${me}_win` : `${me}_lose`;
   const title = w === 'draw' ? '平手！' : won ? '你贏了！' : '你輸了…';
@@ -863,7 +986,7 @@ function toggleMute() { setMuted(!isMuted()); updateMuteIcon(); }
 function updateMuteIcon() { $('#mute').textContent = isMuted() ? '🔇' : '🔊'; }
 
 // ── 連線對戰 ─────────────────────────────
-let pingTimer = null, battleRoom = null, lastTurnKey = '';
+let pingTimer = null, battleRoom = null, lastTurnKey = '', roomName = '';
 
 function notice(msg) {
   openModal(`<h2>${esc(msg)}</h2><div class="btns"><button class="btn primary" id="m-ok">知道了</button></div>`);
@@ -913,9 +1036,9 @@ function openModeMenu(side) {
   };
 }
 
-// 有設定 Turnstile 才會跳出真人驗證
+// 只有伺服器判定「操作像腳本」時才會要求真人驗證（code: 'verify'），一般玩家不會看到
 async function verifyHuman() {
-  if (!server.turnstileSiteKey) return null;
+  if (!server.turnstileSiteKey) throw new Error('turnstile not configured');
   openModal(`<h2>真人驗證</h2><p class="small">確認你不是機器人，通常點一下就好。</p><div id="ts-box"></div>
     <div class="btns"><button class="btn" id="m-cancel">取消</button></div>`, { locked: true });
   let cancelled = false;
@@ -925,11 +1048,16 @@ async function verifyHuman() {
   return token;
 }
 
-async function randomMatch(side, name = savedName()) {
+// 伺服器要求驗證時：做完驗證再用 retry(token) 重試一次
+async function verifyThen(retry) {
+  let token;
+  try { token = await verifyHuman(); } catch { notice('真人驗證沒有完成，請再試一次'); return; }
+  retry(token);
+}
+
+async function randomMatch(side, name = savedName(), token = null) {
   if (checkName(name)) { openModeMenu(side); return; }
   unlock();
-  let token = null;
-  try { token = await verifyHuman(); } catch { notice('真人驗證沒有完成，請再試一次'); return; }
   const total = CONFIG.MATCH_SECONDS;
   openModal(`<h2>配對中…</h2>
     <div class="count-ring" id="m-count">${total}</div>
@@ -968,22 +1096,22 @@ async function randomMatch(side, name = savedName()) {
     if (lobbySock !== ws) return; // 已改跟電腦玩或已取消，忽略晚到的配對結果
     let m; try { m = JSON.parse(e.data); } catch { return; }
     if (m.t === 'queue' && $('#m-wait')) { full = true; $('#m-wait').textContent = m.msg; }
+    else if (m.t === 'error' && m.code === 'verify' && !token) { stop(); verifyThen((t) => randomMatch(side, name, t)); }
     else if (m.t === 'error') { stop(); notice(m.msg); }
     else if (m.t === 'matched') { stop(); connectRoom(m.code, name); }
   };
   ws.onclose = () => { if (lobbySock === ws) { stop(); notice('配對連線中斷，請再試一次'); } };
 }
 
-async function hostRoom(side, name) {
+async function hostRoom(side, name, token = null) {
   unlock();
-  let token = null;
-  try { token = await verifyHuman(); } catch { notice('真人驗證沒有完成，請再試一次'); return; }
   try {
     const r = await fetch('/api/create', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ pid: getPid(), name, side, turnstile: token }),
     });
     const d = await r.json().catch(() => ({}));
+    if (!r.ok && d.code === 'verify' && !token) { verifyThen((t) => hostRoom(side, name, t)); return; }
     if (!r.ok) { notice(d.error || d.msg || '開房失敗，請稍後再試'); return; }
     connectRoom(d.code, name);
   } catch { notice('開房失敗，請檢查網路'); }
@@ -1010,13 +1138,14 @@ function send(msg) {
   else toast('連線中，請稍候再試');
 }
 
-function connectRoom(code, name) {
+function connectRoom(code, name, token = null) {
   gen += 1;
   mode = 'online';
   roomCode = code;
   leaving = false;
   try { sessionStorage.setItem('bg_room', JSON.stringify({ code, name, at: Date.now() })); } catch { /* 忽略 */ }
-  const ws = new WebSocket(wsUrl(`/room/${code}?pid=${encodeURIComponent(getPid())}&name=${encodeURIComponent(name || '')}`));
+  const ws = new WebSocket(wsUrl(`/room/${code}?pid=${encodeURIComponent(getPid())}&name=${encodeURIComponent(name || '')}${token ? `&ts=${encodeURIComponent(token)}` : ''}`));
+  roomName = name;
   sock = ws;
   ws.onmessage = (e) => { if (sock === ws) onRoomMessage(e.data); };
   ws.onopen = () => { reconnectUntil = 0; if (game) render(); };
@@ -1051,7 +1180,11 @@ function onRoomMessage(data) {
   if (data === 'pong') return;
   let m; try { m = JSON.parse(data); } catch { return; }
   if (m.t === 'error') {
-    if (m.fatal) { goHome(); notice(m.msg); } else if (game) toast(m.msg);
+    if (m.fatal && m.code === 'verify' && roomCode) {
+      const code = roomCode, name = roomName;
+      goHome();
+      verifyThen((t) => connectRoom(code, name, t));
+    } else if (m.fatal) { goHome(); notice(m.msg); } else if (game) toast(m.msg);
     return;
   }
   if (m.t === 'opp') {

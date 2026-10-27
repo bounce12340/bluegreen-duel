@@ -8,8 +8,8 @@ import {
   declareCard, respond, hasStatus, RULES,
 } from '../../site/js/engine.js';
 import { checkName, cleanName } from '../../site/js/names.js';
-import { parseFacts, askJev, judgeNickname, nicknameDecision, NICKNAME_QVER } from './jev.js';
-import { triageInbox, digestInbox } from './mail.js';
+import { parseFacts, askJev, judgeNickname, nicknameDecision, NICKNAME_QVER, parseMood, judgeMood, judgeMail, REPORT_CONTEXT, botStats, judgeBot } from './jev.js';
+import { triageInbox, digestInbox, sendToOwner, formatReport } from './mail.js';
 const DIGEST_CRON = '0 13 * * *'; // 要和 wrangler.toml 的 crons 一致
 
 const MAX_ROOMS = 200;
@@ -67,6 +67,36 @@ async function verifyTurnstile(env, token, ip) {
   } catch { return false; }
 }
 
+// IP 只存雜湊（每天換鹽，隔天就對不起來），只用來計算「近一小時場數」（換識別碼重開也算得到），不用來擋人
+async function ipHash(ip) {
+  const data = new TextEncoder().encode(`${ip || 'unknown'}|${taipeiToday()}|bluegreen`);
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
+  return [...h.slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// 機器人閘門：只有被 Jev 判為「像腳本」的玩家才需要處理，一般玩家完全不受影響。
+// 有設 Turnstile → 要求做一次真人驗證，通過就解除；沒設 → 線上對戰暫停一段時間（還能跟電腦玩）。
+// 回傳 null＝放行；否則 { code, msg }
+async function botGate(env, pid, ip, token) {
+  try {
+    const gate = env.JEV_GATE.get(env.JEV_GATE.idFromName('global'));
+    const ih = await ipHash(ip);
+    const d = await (await gate.fetch('https://gate/flag/check', { method: 'POST', body: JSON.stringify({ pid, ih }) })).json();
+    if (!d.flagged) return null;
+    if (env.TURNSTILE_SECRET) {
+      if (token && await verifyTurnstile(env, token, ip)) {
+        await gate.fetch('https://gate/flag/clear', { method: 'POST', body: JSON.stringify({ pid, ih }) });
+        return null;
+      }
+      return { code: 'verify', msg: '請先完成真人驗證' };
+    }
+    const hhmm = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(d.until));
+    return { code: 'cooldown', msg: `系統偵測到不像真人的操作，線上對戰暫停到 ${hhmm}，先跟電腦玩吧` };
+  } catch {
+    return null; // 檢查本身出錯時放行，不影響一般玩家
+  }
+}
+
 const validPid = (pid) => typeof pid === 'string' && /^[a-zA-Z0-9-]{16,64}$/.test(pid);
 const validSide = (s) => s === 'blue' || s === 'green';
 
@@ -89,8 +119,13 @@ export default {
     if (msg) return json({ error: 'closed', msg }, 503);
 
     // 電腦對手的 Jev 判斷：所有請求都經過同一個計數器（頻率限制＋每日上限）
-    if (path === '/ai/read' && req.method === 'POST') {
+    if ((path === '/ai/read' || path === '/ai/mood') && req.method === 'POST') {
       if (!jevEnabled(env)) return json({ error: 'jev disabled' }, 503);
+      return env.JEV_GATE.get(env.JEV_GATE.idFromName('global')).fetch(req);
+    }
+
+    // 遊戲內「回報問題」：不論 Jev 有沒有開都收（沒開就全部留到晚上彙整）
+    if (path === '/report' && req.method === 'POST') {
       return env.JEV_GATE.get(env.JEV_GATE.idFromName('global')).fetch(req);
     }
 
@@ -104,8 +139,16 @@ export default {
   // 排程：每 5 分鐘信箱分流；每天 UTC 13:00（台北 21:00）寄一般來信彙整。沒設定 AgentMail 就不動作。
   async scheduled(event, env, ctx) {
     if (event.cron === DIGEST_CRON) {
-      ctx.waitUntil(digestInbox(env).then((r) => console.log(JSON.stringify({ mail: 'digest', ...r })))
-        .catch((e) => console.log(JSON.stringify({ mail: 'digest-error', error: String(e).slice(0, 300) }))));
+      ctx.waitUntil((async () => {
+        const gate = env.JEV_GATE.get(env.JEV_GATE.idFromName('global'));
+        const { reports = [] } = await (await gate.fetch('https://gate/reports/list')).json();
+        const r = await digestInbox(env, { reports });
+        // 寄出成功才刪，失敗就留到明天再寄
+        if (r.sent && reports.length) {
+          await gate.fetch('https://gate/reports/delete', { method: 'POST', body: JSON.stringify({ keys: reports.map((x) => x.key) }) });
+        }
+        console.log(JSON.stringify({ mail: 'digest', ...r }));
+      })().catch((e) => console.log(JSON.stringify({ mail: 'digest-error', error: String(e).slice(0, 300) }))));
       return;
     }
     if (!jevEnabled(env)) return;
@@ -142,11 +185,130 @@ export class JevGate extends DurableObject {
     return null;
   }
 
+  // 遊戲內回報：同一個 IP 10 分鐘最多 3 則、全站每天最多 300 則
+  async report(req) {
+    const env = this.env;
+    const ip = req.headers.get('cf-connecting-ip') || 'unknown';
+    let rep;
+    try { rep = parseReport(await req.json()); } catch { rep = null; }
+    if (!rep) return json({ error: '內容格式不對，請寫 2～1000 字' }, 400);
+    const slot = Math.floor(Date.now() / 600_000);
+    const k = `${ip}:${slot}`;
+    this.reportRate = this.reportRate || new Map();
+    const n = (this.reportRate.get(k) || 0) + 1;
+    if (n > 3) return json({ error: '回報太頻繁了，請過幾分鐘再試' }, 429);
+    this.reportRate.set(k, n);
+    if (this.reportRate.size > 2000) this.reportRate.clear();
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date());
+    const used = (await this.ctx.storage.get(`reports:${day}`)) || 0;
+    if (used >= 300) return json({ error: '今天的回報已經很多了，明天再試，或寄信到聯絡信箱' }, 429);
+    await this.ctx.storage.put(`reports:${day}`, used + 1);
+
+    let result = null;
+    if (jevEnabled(env) && !(await this.admit(ip))) {
+      try {
+        result = await judgeMail(env.TYPESAFE_API_KEY, '遊戲內回報', rep.text, env.JEV_URL_OVERRIDE || undefined, { context: REPORT_CONTEXT });
+      } catch (e) {
+        console.log(JSON.stringify({ report: 'jev-error', error: String(e).slice(0, 300) }));
+      }
+    }
+    // Jev 失敗或沒開：不當成「不重要」，標成待確認、留到晚上彙整（不即時轉寄，避免被灌爆信箱）
+    const labels = result ? result.labels : ['unclassified'];
+    const level = result ? result.level : 1;
+    const item = { text: rep.text, diag: rep.diag, labels, level, at: Date.now() };
+    if (level >= 2) {
+      const tag = labels.includes('critical') ? '特急' : labels.includes('urgent') ? '緊急' : labels.includes('press') ? '媒體' : '待處理';
+      const why = result ? [`緊急度 ${result.scores.urgency.toFixed(1)} / 3`, ...Object.entries(result.scores)
+        .filter(([key, v]) => key !== 'urgency' && v >= 0.5).map(([key, v]) => `${key} ${v.toFixed(2)}`)].join('、') : '';
+      try {
+        await sendToOwner(env, `【${tag}】藍綠攻防戰遊戲內回報：${rep.text.replace(/\s+/g, ' ').slice(0, 30)}`,
+          `自動分流結果：${labels.join('、')}\n判斷依據：${why}\n\n${formatReport(item)}`);
+        console.log(JSON.stringify({ report: 'forwarded', labels }));
+        return json({ ok: true });
+      } catch (e) {
+        console.log(JSON.stringify({ report: 'forward-error', error: String(e).slice(0, 300) }));
+        // 寄不出去就留到彙整，至少不會遺失
+      }
+    }
+    await this.ctx.storage.put(`report:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`, item);
+    console.log(JSON.stringify({ report: 'stored', labels }));
+    return json({ ok: true });
+  }
+
+  // 一局線上對戰結束：算反應時間統計 → Jev 判斷 → 0.7 以上就標記（程式決定）
+  async botCheck(req) {
+    const env = this.env;
+    const { pid, ih, rt, timeouts } = await req.json();
+    if (!validPid(pid) || !Array.isArray(rt)) return json({ error: 'bad request' }, 400);
+    // 近一小時完成的線上場數（同一個識別碼或同一個 IP 雜湊，取多的）；放記憶體，休眠後重算無妨
+    const now = Date.now();
+    this.recentGames = this.recentGames || new Map();
+    const bump = (k) => {
+      const list = (this.recentGames.get(k) || []).filter((t) => now - t < 3600_000);
+      list.push(now);
+      this.recentGames.set(k, list);
+      return list.length;
+    };
+    const gamesLastHour = Math.max(bump(`p:${pid}`), ih ? bump(`i:${ih}`) : 0);
+    if (this.recentGames.size > 5000) this.recentGames.clear();
+    const stats = botStats(rt.slice(-80).map(Number), { timeouts: Number(timeouts) || 0, gamesLastHour });
+    if (!stats) return json({ skipped: 'too few actions' });
+    if (await this.admit('bot-check')) return json({ skipped: 'rate' });
+    try {
+      const r = await judgeBot(env.TYPESAFE_API_KEY, stats, env.JEV_URL_OVERRIDE || undefined);
+      console.log(JSON.stringify({ jev: 'bot', scripted: r.scripted, stats, usage: r.usage }));
+      if (r.scripted >= 0.7) {
+        const until = now + (env.TURNSTILE_SECRET ? 24 * 3600_000 : 30 * 60_000);
+        await this.ctx.storage.put(`flag:p:${pid}`, { until, score: r.scripted });
+      }
+      return json({ scripted: r.scripted });
+    } catch (e) {
+      // 判斷失敗不標記（不能把失敗當成「是機器人」）
+      console.log(JSON.stringify({ jev: 'bot-error', error: String(e).slice(0, 300) }));
+      return json({ error: 'jev unavailable' }, 502);
+    }
+  }
+
   async fetch(req) {
     const env = this.env;
     const url = new URL(req.url);
     // JEV_URL_OVERRIDE 只給本機測試用（假的 Jev 伺服器）；正式環境不設
     const jevUrl = env.JEV_URL_OVERRIDE || undefined;
+
+    // 遊戲內回報：彙整用的清單與刪除（排程內部呼叫）
+    if (url.pathname === '/reports/list') {
+      const all = await this.ctx.storage.list({ prefix: 'report:' });
+      const cutoff = Date.now() - 7 * 86400_000;
+      const reports = [];
+      for (const [key, v] of all) {
+        if (v.at < cutoff) await this.ctx.storage.delete(key); // 超過 7 天沒寄出就丟掉
+        else reports.push({ key, ...v });
+      }
+      return json({ reports });
+    }
+    if (url.pathname === '/reports/delete' && req.method === 'POST') {
+      const { keys } = await req.json();
+      if (Array.isArray(keys) && keys.length) await this.ctx.storage.delete(keys.filter((k) => String(k).startsWith('report:')).slice(0, 128));
+      return json({ ok: true });
+    }
+    if (url.pathname.endsWith('/report') && req.method === 'POST') return this.report(req);
+
+    // 機器人標記：查詢、解除、對局結束後判斷（都是內部呼叫）
+    if (url.pathname === '/flag/check') {
+      const { pid, ih } = await req.json();
+      const now = Date.now();
+      // 只看玩家識別碼。不用 IP 擋人：手機網路、學校、公司常常很多人共用同一個 IP，會誤傷真人
+      const f = await this.ctx.storage.get(`flag:p:${pid}`);
+      if (f && f.until > now) return json({ flagged: true, until: f.until });
+      if (f) await this.ctx.storage.delete(`flag:p:${pid}`);
+      return json({ flagged: false });
+    }
+    if (url.pathname === '/flag/clear') {
+      const { pid, ih } = await req.json();
+      await this.ctx.storage.delete(`flag:p:${pid}`);
+      return json({ ok: true });
+    }
+    if (url.pathname === '/bot/check') return this.botCheck(req);
 
     // 暱稱審核（大廳與房間內部呼叫）：先查快取，同一個暱稱 7 天內不重問
     if (url.pathname === '/nickname') {
@@ -168,9 +330,25 @@ export class JevGate extends DurableObject {
       }
     }
 
-    // 電腦對手的吹牛判斷（玩家瀏覽器呼叫）
     const blocked = await this.admit(req.headers.get('cf-connecting-ip') || 'unknown');
     if (blocked) return blocked;
+
+    // 玩家心情（對戰電腦打完一局後）：Jev 判斷，前端決定電腦要不要放水
+    if (url.pathname.endsWith('/ai/mood')) {
+      let mood;
+      try { mood = parseMood(await req.json()); } catch { mood = null; }
+      if (!mood) return json({ error: 'bad request' }, 400);
+      try {
+        const r = await judgeMood(env.TYPESAFE_API_KEY, mood, jevUrl);
+        console.log(JSON.stringify({ jev: 'mood', frustrated: r.frustrated, tooEasy: r.tooEasy, usage: r.usage, payload: r.payload }));
+        return json({ frustrated: r.frustrated, tooEasy: r.tooEasy, model: r.model });
+      } catch (e) {
+        console.log(JSON.stringify({ jev: 'mood-error', error: String(e).slice(0, 300) }));
+        return json({ error: 'jev unavailable' }, 502);
+      }
+    }
+
+    // 電腦對手的吹牛判斷（玩家瀏覽器呼叫）
     let facts;
     try { facts = parseFacts(await req.json()); } catch { facts = null; }
     if (!facts) return json({ error: 'bad request' }, 400);
@@ -184,6 +362,24 @@ export class JevGate extends DurableObject {
       return json({ error: 'jev unavailable' }, 502);
     }
   }
+}
+
+// 遊戲內回報的格式檢查：文字 2～1000 字；遊戲狀態只收固定欄位的短字串或數字（不收任何識別資料）
+const DIAG_KEYS = ['mode', 'side', 'round', 'blue', 'green', 'over', 'pending', 'viewport', 'browser', 'os', 'inApp', 'ease'];
+function parseReport(b) {
+  if (!b || typeof b !== 'object' || typeof b.text !== 'string') return null;
+  const text = b.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim();
+  if ([...text].length < 2 || [...text].length > 1000) return null;
+  const diag = {};
+  if (b.diag && typeof b.diag === 'object') {
+    for (const k of DIAG_KEYS) {
+      const v = b.diag[k];
+      if (typeof v === 'number' && Number.isFinite(v)) diag[k] = Math.round(v);
+      else if (typeof v === 'boolean') diag[k] = v;
+      else if (typeof v === 'string') diag[k] = v.replace(/[^\w .x:/-]/g, '').slice(0, 24);
+    }
+  }
+  return { text, diag };
 }
 
 // 暱稱審核：關鍵字（免費、即時）→ Jev（有開才問）。回傳錯誤訊息，合格回傳 null
@@ -242,7 +438,8 @@ export class Lobby extends DurableObject {
     if (!validPid(b.pid) || !validSide(b.side)) return json({ error: '資料格式錯誤' }, 400);
     const nameErr = await moderateName(this.env, b.name, req.headers.get('cf-connecting-ip'));
     if (nameErr) return json({ error: nameErr }, 400);
-    if (!(await verifyTurnstile(this.env, b.turnstile, req.headers.get('cf-connecting-ip')))) return json({ error: '真人驗證失敗，請重試' }, 403);
+    const bot = await botGate(this.env, b.pid, req.headers.get('cf-connecting-ip'), b.turnstile);
+    if (bot) return json({ error: bot.msg, code: bot.code }, 403);
     const rooms = await this.rooms();
     if (Object.keys(rooms).length >= MAX_ROOMS) return json({ error: '目前房間已滿，請稍後再試' }, 503);
     let code = newCode();
@@ -266,7 +463,8 @@ export class Lobby extends DurableObject {
     if (!validPid(m.pid) || !validSide(m.side)) { ws.send(JSON.stringify({ t: 'error', msg: '資料格式錯誤' })); return; }
     const err = await moderateName(this.env, m.name, att.ip);
     if (err) { ws.send(JSON.stringify({ t: 'error', msg: err })); return; }
-    if (!(await verifyTurnstile(this.env, m.turnstile, att.ip))) { ws.send(JSON.stringify({ t: 'error', msg: '真人驗證失敗，請重試' })); return; }
+    const bot = await botGate(this.env, m.pid, att.ip, m.turnstile);
+    if (bot) { ws.send(JSON.stringify({ t: 'error', msg: bot.msg, code: bot.code })); return; }
     ws.serializeAttachment({ waiting: true, pid: m.pid, name: cleanName(m.name), pref: m.side, joinedAt: Date.now() });
     ws.send(JSON.stringify({ t: 'waiting' }));
     await this.tryMatch(false);
@@ -377,9 +575,9 @@ export class Room extends DurableObject {
     const r = await this.load();
     const pid = url.searchParams.get('pid');
     const pair = new WebSocketPair();
-    const reject = (msg) => {
+    const reject = (msg, code) => {
       this.ctx.acceptWebSocket(pair[1], ['reject']);
-      pair[1].send(JSON.stringify({ t: 'error', msg, fatal: true }));
+      pair[1].send(JSON.stringify({ t: 'error', msg, fatal: true, code }));
       pair[1].close(4003, 'rejected');
       return new Response(null, { status: 101, webSocket: pair[0] });
     };
@@ -393,6 +591,8 @@ export class Room extends DurableObject {
       const name = url.searchParams.get('name');
       const err = await moderateName(this.env, name, req.headers.get('cf-connecting-ip'));
       if (err) return reject(err);
+      const bot = await botGate(this.env, pid, req.headers.get('cf-connecting-ip'), url.searchParams.get('ts'));
+      if (bot) return reject(bot.msg, bot.code);
       if (this.r.status !== 'waiting') return reject('這個房間已經開始或結束了'); // 審核期間被別人搶先
       side = ['blue', 'green'].find((s) => !r.players[s]);
       r.players[side] = { pid, name: cleanName(name) };
@@ -403,6 +603,7 @@ export class Room extends DurableObject {
     for (const old of this.ctx.getWebSockets(side)) { try { old.close(4001, 'replaced'); } catch { /* 忽略 */ } }
     this.ctx.acceptWebSocket(pair[1], [side]);
     pair[1].serializeAttachment({ side });
+    if (!r.players[side].ih) r.players[side].ih = await ipHash(req.headers.get('cf-connecting-ip'));
     r.joined = r.joined || { blue: false, green: false };
     const wasAway = r.joined[side] && !!r.disconnects[side]; // 第一次連進來不算「回來」
     r.joined[side] = true;
@@ -424,9 +625,13 @@ export class Room extends DurableObject {
     for (const side of ['blue', 'green']) {
       if (!this.ctx.getWebSockets(side).length) this.r.disconnects[side] = now;
     }
-    this.r.state = createGame({ seed: randInt(), disabledCards: disabledCards(this.env) });
+    this.r.state = createGame({ seed: randInt(), disabledCards: disabledCards(this.env), today: taipeiToday() });
     takeEvents(this.r.state);
     this.r.status = 'playing';
+    // 反應時間紀錄（機器人判斷用）：輪到某一方可以動作的時間點，以及每個動作花了多久
+    this.r.rt = { blue: [], green: [] };
+    this.r.actStart = { blue: 0, green: 0, [this.r.state.current]: now };
+    this.r.timeouts = { blue: 0, green: 0 };
     this.r.turnDeadline = now + TURN_MS;
     this.r.endAt = now + GAME_MAX_MS;
   }
@@ -489,6 +694,7 @@ export class Room extends DurableObject {
     // 對手回應蓋牌宣告（不是自己的回合也能送）
     if (m.t === 'respond') {
       if (!s.pending || s.pending.side === side || now > r.respondDeadline + GRACE_MS) return;
+      this.recordReaction(side, now);
       respond(s, side, !!m.challenge);
       this.resumeTurnClock(now);
       await this.afterChange(turnBefore);
@@ -508,7 +714,20 @@ export class Room extends DurableObject {
     else if (m.t === 'ult') ok = useUlt(s, side, String(m.id));
     else if (m.t === 'burst') ok = enterBurst(s, side);
     if (!ok) return ws.send(JSON.stringify({ t: 'error', msg: '這個動作現在不能做' }));
+    this.recordReaction(side, now);
+    if (m.t === 'declare' && r.actStart) r.actStart[other(side)] = now; // 對手開始想要不要質疑
     await this.afterChange(turnBefore);
+  }
+
+  // 記一個動作的反應時間；同一回合的下一個動作從現在開始算
+  recordReaction(side, now) {
+    const r = this.r;
+    if (!r.rt || !r.actStart) return;
+    if (r.actStart[side]) {
+      r.rt[side].push(now - r.actStart[side]);
+      if (r.rt[side].length > 80) r.rt[side].shift();
+    }
+    r.actStart[side] = now;
   }
 
   // 等待質疑的時間不算在出牌方的 60 秒裡
@@ -523,7 +742,10 @@ export class Room extends DurableObject {
     const r = this.r;
     const s = r.state;
     const events = takeEvents(s);
-    if (s.turnIndex !== turnBefore) r.turnDeadline = Date.now() + TURN_MS;
+    if (s.turnIndex !== turnBefore) {
+      r.turnDeadline = Date.now() + TURN_MS;
+      if (r.actStart) r.actStart[s.current] = Date.now();
+    }
     if (s.over) await this.finish();
     else await this.save();
     this.broadcast(events);
@@ -531,9 +753,21 @@ export class Room extends DurableObject {
 
   async finish() {
     const r = this.r;
+    const wasPlaying = r.status === 'playing';
     r.status = 'over';
     r.cleanupAt = Date.now() + CLEANUP_MS;
     await this.save();
+    // 機器人判斷：在背景送出，不拖慢結算畫面
+    if (wasPlaying && r.rt && jevEnabled(this.env)) {
+      const gate = this.env.JEV_GATE.get(this.env.JEV_GATE.idFromName('global'));
+      for (const side of ['blue', 'green']) {
+        const p = r.players[side];
+        if (!p?.pid || r.rt[side].length < 6) continue;
+        this.ctx.waitUntil(gate.fetch('https://gate/bot/check', {
+          method: 'POST', body: JSON.stringify({ pid: p.pid, ih: p.ih || '', rt: r.rt[side], timeouts: r.timeouts[side] }),
+        }).catch(() => {}));
+      }
+    }
     try {
       await this.env.LOBBY.get(this.env.LOBBY.idFromName('main')).fetch('https://lobby/closed', {
         method: 'POST', body: JSON.stringify({ code: r.code }),
@@ -568,6 +802,7 @@ export class Room extends DurableObject {
         finishByCount(s);
         s.reason = `對局超過 20 分鐘，${s.reason}`;
       } else if (now >= r.turnDeadline + GRACE_MS) {
+        if (r.timeouts) r.timeouts[s.current] += 1;
         s.events.push({ type: 'timeout', side: s.current, msg: '時間到，自動結束回合' });
         endTurn(s);
       }

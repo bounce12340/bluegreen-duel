@@ -147,8 +147,24 @@ export async function triageInbox(env, { jevUrl } = {}) {
   return { checked: fresh.length + retry.length, done };
 }
 
-// 每日彙整（台北時間 21:00）：1 級的一般來信整理成一封寄給作者；0 級垃圾信只報數量。處理過的貼 digested。
-export async function digestInbox(env) {
+// 直接寄一封通知給作者（遊戲內回報的緊急件用）
+export async function sendToOwner(env, subject, text) {
+  if (!env.AGENTMAIL_API_KEY) throw new Error('agentmail not configured');
+  const to = notifyTargets(env.NOTIFY_EMAIL);
+  if (!to.length) throw new Error('notify-email-invalid');
+  const inbox = encodeURIComponent(env.MAIL_INBOX || 'bluegreen-duel@agentmail.to');
+  return am(env, `/inboxes/${inbox}/messages/send`, { method: 'POST', body: JSON.stringify({ to, subject, text }) });
+}
+
+// 遊戲內回報的文字版（彙整信與即時通知共用）
+export function formatReport(rep) {
+  const d = rep.diag || {};
+  const diag = Object.keys(d).length ? Object.entries(d).map(([k, v]) => `${k}=${v}`).join('、') : '（玩家沒有附上）';
+  return `${rep.text}\n   分類：${(rep.labels || []).filter((l) => !l.startsWith('prio-')).join('、') || 'other'}｜遊戲狀態：${diag}`;
+}
+
+// 每日彙整（台北時間 21:00）：1 級的一般來信＋遊戲內回報整理成一封寄給作者；0 級垃圾只報數量。處理過的貼 digested。
+export async function digestInbox(env, { reports = [] } = {}) {
   if (!env.AGENTMAIL_API_KEY || !env.NOTIFY_EMAIL) return { skipped: 'not configured' };
   const to = notifyTargets(env.NOTIFY_EMAIL);
   if (!to.length) return { skipped: 'notify-email-invalid' };
@@ -159,24 +175,29 @@ export async function digestInbox(env) {
   const pending = (list.messages || []).filter((m) => has(m, 'triaged') && !has(m, 'digested') && !has(m, 'sent'));
   const normal = pending.filter((m) => has(m, 'prio-1'));
   const junk = pending.filter((m) => has(m, 'prio-0'));
-  if (!normal.length && !junk.length) return { sent: false };
+  const repNormal = reports.filter((r) => r.level !== 0);
+  const repJunk = reports.length - repNormal.length;
+  if (!normal.length && !junk.length && !reports.length) return { sent: false };
   const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(5, 10).replace('-', '/');
   const lines = normal.map((m, i) => {
     const cats = (m.labels || []).filter((l) => CATEGORY.has(l) && !l.startsWith('prio-'));
     const preview = String(m.preview || '').replace(/\s+/g, ' ').slice(0, 120);
     return `${i + 1}. ${m.subject || '（無主旨）'}\n   寄件者：${m.from || '（未知）'}｜分類：${cats.join('、') || 'other'}\n   ${preview}`;
   });
+  const repLines = repNormal.map((r, i) => `${i + 1}. ${formatReport(r)}`);
   const text = [
-    `今天（${day}）有 ${normal.length} 封一般來信，不急，有空再看：`, '', ...lines,
-    ...(junk.length ? ['', `另有 ${junk.length} 封判定為垃圾或廣告，只貼標籤沒有轉寄。`] : []),
+    `今天（${day}）有 ${normal.length} 封一般來信、${repNormal.length} 則遊戲內回報，不急，有空再看：`,
+    ...(normal.length ? ['', '【來信】', ...lines] : []),
+    ...(repNormal.length ? ['', '【遊戲內回報】', ...repLines] : []),
+    ...(junk.length || repJunk ? ['', `另有 ${junk.length + repJunk} 則判定為垃圾或廣告，只記錄沒有轉寄。`] : []),
     '', '（完整原信在 bluegreen-duel@agentmail.to 信箱。2 級以上的來信會即時轉寄，不會出現在彙整裡。）',
   ].join('\n');
   await am(env, `/inboxes/${inbox}/messages/send`, {
-    method: 'POST', body: JSON.stringify({ to, subject: `【每日彙整】藍綠攻防戰來信 ${normal.length} 封（${day}）`, text }),
+    method: 'POST', body: JSON.stringify({ to, subject: `【每日彙整】藍綠攻防戰來信 ${normal.length} 封、回報 ${repNormal.length} 則（${day}）`, text }),
   });
   for (const m of [...normal, ...junk]) {
     try { await addLabels(env, inbox, encodeURIComponent(m.message_id), ['digested']); }
     catch (e) { console.log(JSON.stringify({ mail: 'digest-label-error', error: String(e).slice(0, 200) })); }
   }
-  return { sent: true, normal: normal.length, junk: junk.length };
+  return { sent: true, normal: normal.length, junk: junk.length, reports: reports.length };
 }

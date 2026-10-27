@@ -2,6 +2,7 @@
 // 所有亂數都從 state.rngState 來，同一個種子可重現整局，方便除錯與平衡模擬。
 // 整局狀態都是純資料（可 JSON 化），伺服器休眠後可以從儲存空間原樣還原。
 import { CARDS, RARITY_WEIGHT, ULTS } from './cards.js';
+import { NEWS_CARDS, activeNewsIds } from './news_cards.js';
 
 export const RULES = {
   totalVoters: 100,
@@ -33,7 +34,7 @@ export function rand(s) {
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
-export const CARD_BY_ID = Object.fromEntries(CARDS.map((c) => [c.id, c]));
+export const CARD_BY_ID = Object.fromEntries([...CARDS, ...NEWS_CARDS].map((c) => [c.id, c]));
 const poolOf = (s) => s.poolIds.map((id) => CARD_BY_ID[id]).filter(Boolean);
 
 const other = (side) => (side === 'blue' ? 'green' : 'blue');
@@ -46,14 +47,15 @@ function newPlayer(side) {
   };
 }
 
-export function createGame({ seed = Date.now(), firstSide, disabledCards = [] } = {}) {
+// today：台北日期（YYYY-MM-DD），決定哪些時事卡上架；'all'＝全部（平衡模擬）；不給＝不含時事卡
+export function createGame({ seed = Date.now(), firstSide, disabledCards = [], today = null } = {}) {
   const s = {
     seed, rngState: seed >>> 0, round: 1, turnIndex: 0, over: false, winner: null, reason: '',
     players: { blue: newPlayer('blue'), green: newPlayer('green') },
     first: null, current: null, field: null, events: [], log: [],
     pending: null, declaredThisTurn: false, // 蓋牌宣告等待對手回應
     magicThisTurn: false,
-    poolIds: CARDS.filter((c) => !disabledCards.includes(c.id)).map((c) => c.id),
+    poolIds: [...CARDS.map((c) => c.id), ...activeNewsIds(today)].filter((id) => !disabledCards.includes(id)),
     nextUid: 1,
   };
   s.first = firstSide || (rand(s) < 0.5 ? 'blue' : 'green');

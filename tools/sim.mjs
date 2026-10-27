@@ -7,7 +7,7 @@ let rounds = 0, byMajority = 0, margins = 0;
 const ultUse = {}, cardPlays = {};
 let declares = 0, bluffs = 0, challenges = 0, caught = 0;
 for (let i = 0; i < N; i++) {
-  const s = createGame({ seed: 1000 + i });
+  const s = createGame({ seed: 1000 + i, today: 'all' }); // 含所有時事卡，確認加了也不失衡
   const profiles = { blue: newProfile(), green: newProfile() };
   while (!s.over) {
     const acts = aiTakeTurn(s, s.current, { profiles });

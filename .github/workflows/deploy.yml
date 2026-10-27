@@ -24,6 +24,9 @@ jobs:
       - name: 平衡模擬（勝率超出 40–60% 就停止部署）
         run: node tools/sim.mjs 1000 | tee sim.txt
 
+      - name: 時事卡格式檢查（日期、來源、藍綠成對）
+        run: node tools/news_check.mjs
+
       - name: 卡牌內容合規＋嘲諷對稱檢查（Jev）
         env:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}

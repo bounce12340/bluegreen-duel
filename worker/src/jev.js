@@ -280,14 +280,119 @@ export function mailDecision(scores) {
   if (!labels.some((l) => !l.startsWith('prio-') && l !== 'critical')) labels.push('other'); // 沒有任何類別
   return { labels, level, forward: level >= 2, urgent };
 }
-export async function judgeMail(apiKey, subject, body, url = JEV_URL) {
+// 遊戲內「回報問題」表單也用同一套問題與分級，只是說明文字不同
+export const REPORT_CONTEXT = 'This message was typed into the "report a problem" form inside 藍綠攻防戰, a free online political-satire card game about the 2026 Taipei mayoral race between 蔣萬安 (KMT) and 沈伯洋 (DPP). The game is not made by any candidate, party, or campaign. The message is written by a player.';
+export async function judgeMail(apiKey, subject, body, url = JEV_URL, { context = MAIL_CONTEXT } = {}) {
   const email = { subject: String(subject || '').slice(0, 300), body: String(body || '').slice(0, 6000) };
-  const r = await callJev(apiKey, { email, context: MAIL_CONTEXT }, MAIL_QUESTIONS, { url, timeoutMs: 8000 });
+  const r = await callJev(apiKey, { email, context }, MAIL_QUESTIONS, { url, timeoutMs: 8000 });
   const scores = Object.fromEntries(NOUL_MAIL_KEYS.map((k) => [k, noul(r.answers, k)]));
   const u = r.answers.urgency;
   if (typeof u?.score !== 'number') throw new Error('jev bad score urgency'); // 失敗不當答案：交給呼叫端轉寄
   scores.urgency = u.score;
   return { scores, ...mailDecision(scores), model: r.model, usage: r.usage };
+}
+
+// ── 5. 玩家心情：決定電腦要不要放水（對戰電腦）──────────
+// 只送遊戲數字（勝負、差距、回合數、跳過與逾時次數、局長），不含暱稱、IP 或任何個人資料。
+// Jev 只判斷「玩家是不是快放棄了」「電腦是不是太好打」；升降一級由前端程式決定（site/js/main.js）。
+export const MOOD_CONTEXT = 'A person is playing a turn-based political-satire card game against a computer opponent in a web browser. A game lasts at most 12 rounds and a player wins by reaching 51 supporters first. The game wants new players to keep enjoying it, so it can make the computer opponent easier or harder.';
+export const MOOD_QUESTIONS = {
+  frustrated: {
+    type: 'noul',
+    instructions: 'Is the player in `recent_games` likely frustrated and close to giving up on the game?',
+    criteria: {
+      true: 'The player keeps losing, often by a wide margin, quits games before they end, or lets turns run out of time.',
+      false: 'The player wins some games, loses close games, or keeps playing whole games.',
+    },
+  },
+  too_easy: {
+    type: 'noul',
+    instructions: 'Is the computer opponent too easy for the player in `recent_games`?',
+    criteria: {
+      true: 'The player wins most of the recent games, often by a wide margin.',
+      false: 'The player loses some recent games or wins only narrowly.',
+    },
+  },
+};
+const MOOD_RESULTS = ['win', 'loss', 'draw', 'quit'];
+const DIFFICULTY_EN = ['normal', 'a little easier', 'much easier', 'beginner level'];
+// 只接受固定欄位的數字與列舉值；不合格回傳 null
+export function parseMood(body) {
+  if (!body || typeof body !== 'object' || !Array.isArray(body.recent)) return null;
+  const int = (v, lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi ? v : null);
+  if (body.recent.length < 1 || body.recent.length > 8) return null;
+  const recent = body.recent.map((g) => ({
+    result: MOOD_RESULTS.includes(g?.r) ? g.r : null,
+    margin: int(g?.margin, -100, 100),
+    rounds: int(g?.rounds, 1, 12),
+    skips: int(g?.skips, 0, 12),
+    timeouts: int(g?.timeouts, 0, 12),
+    minutes: int(g?.minutes, 0, 120),
+  }));
+  if (recent.some((g) => Object.values(g).some((v) => v === null))) return null;
+  const ease = int(body.ease, 0, DIFFICULTY_EN.length - 1);
+  const games = int(body.games, 1, 10000);
+  if (ease === null || games === null) return null;
+  return { recent, ease, games };
+}
+export function buildMoodState(m) {
+  return {
+    context: MOOD_CONTEXT,
+    recent_games: m.recent.map((g) => ({
+      result: g.result === 'quit' ? 'left the game before it ended' : g.result,
+      supporter_margin_player_minus_computer: g.margin,
+      rounds_played: g.rounds,
+      turns_the_player_skipped: g.skips,
+      turns_that_ran_out_of_time: g.timeouts,
+      minutes: g.minutes,
+    })),
+    note: 'recent_games is ordered from oldest to newest.',
+    games_played_on_this_device: m.games,
+    current_computer_difficulty: DIFFICULTY_EN[m.ease],
+  };
+}
+export async function judgeMood(apiKey, mood, url = JEV_URL) {
+  const r = await callJev(apiKey, buildMoodState(mood), MOOD_QUESTIONS, { url });
+  return { frustrated: noul(r.answers, 'frustrated'), tooEasy: noul(r.answers, 'too_easy'), model: r.model, usage: r.usage, payload: r.payload };
+}
+
+// ── 6. 機器人／腳本行為（線上對戰結束後）──────────────
+// 只送反應時間的統計數字與近一小時場數，不含玩家識別碼、暱稱或 IP。要不要驗證由程式決定（index.js）。
+export const BOT_CONTEXT = 'Timing statistics from one online game of a turn-based card game played in a web browser. On each turn a person reads their cards, thinks, and taps; each turn allows up to 30 seconds and players often take several seconds. A script or bot tends to act faster than a person could read the screen, with almost the same delay every time, and may play many games in a row.';
+export const BOT_QUESTIONS = {
+  looks_scripted: {
+    type: 'noul',
+    instructions: 'Does the timing in `stats` look like a script or bot rather than a person playing?',
+    criteria: {
+      true: 'Most actions come faster than a person could read the screen, or the delays are nearly identical from action to action, or the player has played an unusually large number of games in the last hour.',
+      false: 'The delays vary the way a person\'s do, with some quick and some slow decisions, and the number of games is ordinary.',
+    },
+  },
+};
+// 由一局的反應時間（毫秒）算統計。少於 6 個動作就不判斷（資料太少）
+export function botStats(rts, { timeouts = 0, gamesLastHour = 1 } = {}) {
+  const xs = rts.filter((x) => Number.isFinite(x) && x >= 0);
+  if (xs.length < 6) return null;
+  const sorted = [...xs].sort((a, b) => a - b);
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const sd = Math.sqrt(xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length);
+  let steady = 0;
+  for (let i = 1; i < xs.length; i++) if (Math.abs(xs[i] - xs[i - 1]) < 80) steady++;
+  return {
+    actions: xs.length,
+    median_ms: Math.round(sorted[Math.floor(sorted.length / 2)]),
+    mean_ms: Math.round(mean),
+    fastest_ms: Math.round(sorted[0]),
+    spread_ms: Math.round(sd),
+    share_of_actions_under_600_ms: Math.round((xs.filter((x) => x < 600).length / xs.length) * 100) / 100,
+    share_of_consecutive_actions_with_nearly_identical_delay: Math.round((steady / (xs.length - 1)) * 100) / 100,
+    turns_that_ran_out_of_time: timeouts,
+    online_games_finished_in_the_last_hour: gamesLastHour,
+  };
+}
+export async function judgeBot(apiKey, stats, url = JEV_URL) {
+  const r = await callJev(apiKey, { context: BOT_CONTEXT, stats }, BOT_QUESTIONS, { url });
+  return { scripted: noul(r.answers, 'looks_scripted'), model: r.model, usage: r.usage, payload: r.payload };
 }
 
 // ── 4. 卡牌合規＋嘲諷對稱（部署前檢查用）─────────
@@ -339,11 +444,30 @@ export const CONTENT_RULES = [
   { key: 'asks_to_vote', label: '投票呼籲' },
   { key: 'states_real_event', label: '把真實事件當事實陳述' },
 ];
-export async function judgeCard(apiKey, card, url = JEV_URL) {
-  const r = await callJev(apiKey, { card, context: CONTENT_CONTEXT }, CONTENT_QUESTIONS, { url, timeoutMs: 10000 });
+// 時事卡另外加問：指控真人做壞事、提到民調（11/18 起依選罷法不得出現）
+export const NEWS_CONTEXT = ' This is a topical card about recent news; it lists its news sources, so it may mention a real event.';
+export const NEWS_QUESTIONS = {
+  accuses_wrongdoing: {
+    type: 'noul',
+    instructions: 'Does `card` accuse a real person or party of wrongdoing, such as breaking the law, corruption, or lying?',
+    criteria: {
+      true: 'The card says or implies that a real person or party did something illegal, corrupt, or dishonest.',
+      false: 'The card describes an event or teases a habit without accusing anyone of wrongdoing.',
+    },
+  },
+  mentions_polls: { type: 'noul', instructions: 'Does `card` mention opinion polls, poll numbers, or who is ahead in a poll?' },
+};
+export const NEWS_RULES = [
+  { key: 'accuses_wrongdoing', label: '指控真人違法、貪腐或說謊' },
+  { key: 'mentions_polls', label: '提到民調' },
+];
+export async function judgeCard(apiKey, card, url = JEV_URL, { news = false } = {}) {
+  const questions = news ? { ...CONTENT_QUESTIONS, ...NEWS_QUESTIONS } : CONTENT_QUESTIONS;
+  const context = news ? CONTENT_CONTEXT + NEWS_CONTEXT : CONTENT_CONTEXT;
+  const r = await callJev(apiKey, { card, context }, questions, { url, timeoutMs: 10000 });
   const scores = {};
-  for (const k of Object.keys(CONTENT_QUESTIONS)) {
-    if (CONTENT_QUESTIONS[k].type === 'noul') scores[k] = noul(r.answers, k);
+  for (const k of Object.keys(questions)) {
+    if (questions[k].type === 'noul') scores[k] = noul(r.answers, k);
   }
   // 嘲諷強度：Score 的 score 是各級機率的加權平均（0＝沒有玩笑 … 3＝尖酸），保留分布方便檢查
   const h = r.answers.harshness;

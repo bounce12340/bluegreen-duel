@@ -6,7 +6,8 @@
 import { writeFileSync } from 'node:fs';
 import { CARDS, ULTS } from '../site/js/cards.js';
 import { CHATTER, TONE_TAG } from '../site/js/chatter.js';
-import { judgeCard, CONTENT_RULES, JEV_MODEL } from '../worker/src/jev.js';
+import { judgeCard, CONTENT_RULES, NEWS_RULES, JEV_MODEL } from '../worker/src/jev.js';
+import { NEWS_CARDS } from '../site/js/news_cards.js';
 
 const KEY = process.env.TYPESAFE_API_KEY;
 const REPORT_ONLY = process.argv.includes('--report-only');
@@ -26,6 +27,14 @@ const items = [
   }))),
 ];
 
+// 時事卡：多問「指控真人做壞事」「提到民調」；因為有附來源，「陳述真實事件」不算不合格，只列入人工確認
+for (const c of NEWS_CARDS) {
+  items.push({ id: c.id, news: true, card: {
+    name: c.name, belongs_to: sideLabel[c.side], kind: 'topical card', effect: c.text,
+    flavor_text: `anonymous netizen comment: ${c.flavor}`, about: c.topic || '', news_sources: c.sources,
+  } });
+}
+
 // 群眾推文：每種情境一組，當成一張「卡」檢查（雙方通用，不屬於任何陣營）
 for (const [kind, lines] of Object.entries(CHATTER)) {
   items.push({ id: `chatter_${kind}`, card: {
@@ -39,7 +48,7 @@ let failedCalls = 0;
 async function worker(queue) {
   for (let it = queue.shift(); it; it = queue.shift()) {
     try {
-      const r = await judgeCard(KEY, it.card, URL_OVERRIDE);
+      const r = await judgeCard(KEY, it.card, URL_OVERRIDE, { news: !!it.news });
       results.push({ ...it, scores: r.scores });
     } catch (e) {
       failedCalls += 1;
@@ -56,9 +65,12 @@ let blue = 0, green = 0;
 const contrib = [];
 for (const r of results) {
   if (!r.scores) continue;
-  for (const rule of CONTENT_RULES) {
+  const rules = r.news ? [...CONTENT_RULES, ...NEWS_RULES] : CONTENT_RULES;
+  for (const rule of rules) {
     const v = r.scores[rule.key];
-    if (v >= FAIL_AT) fails.push({ id: r.id, name: r.card.name, rule: rule.label, p: v });
+    // 時事卡：陳述真實事件有附來源，不算不合格；指控與民調門檻放嚴到 0.5
+    const failAt = r.news && rule.key === 'states_real_event' ? 2 : r.news && NEWS_RULES.includes(rule) ? 0.5 : FAIL_AT;
+    if (v >= failAt) fails.push({ id: r.id, name: r.card.name, rule: rule.label, p: v });
     else if (v >= REVIEW_AT) reviews.push({ id: r.id, name: r.card.name, rule: rule.label, p: v });
   }
   const b = r.scores.pokes_blue * r.scores.harshness;
