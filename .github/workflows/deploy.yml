@@ -27,8 +27,8 @@ jobs:
       - name: 卡牌內容合規＋嘲諷對稱檢查（Jev）
         env:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
-        # 第一次先只報告；確認結果後拿掉 --report-only，不合格就停止部署
-        run: node tools/content_check.mjs --report-only
+        # 任一合規規則機率 ≥ 0.7 就停止部署；0.3–0.7 只列在報告請人工確認；Jev 失敗只警告不擋
+        run: node tools/content_check.mjs
 
       - name: 建立 Pages 專案（已存在則略過）
         env:
