@@ -542,7 +542,7 @@ export function useUlt(s, side, ultId) {
       const mine = p.statuses, theirs = opp.statuses;
       p.statuses = theirs.map((st) => ({ ...st, from: st.from === side ? oppSide : side }));
       opp.statuses = mine.map((st) => ({ ...st, from: st.from === side ? oppSide : side }));
-      pull(s, side, Math.floor(s.round / 2), { raw: true }); // 與市政成績單對等
+      pull(s, side, Math.floor(s.round / 2), { raw: true }); // 與始終如一對等
       break;
     }
     case 'u_report': {

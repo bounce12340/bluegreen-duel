@@ -23,6 +23,9 @@ Two original chibi mascots — Little Wayne / 萬安號 (blue camp) and Little P
 - **Campaign strategies, venue events and combos.** Each player picks 1 of 3 campaign strategies at the start (8 generic play styles, revealed once both have chosen). City-wide venue events (a typhoon day off, a New Year's Eve concert, MRT delays…) hit both sides in rounds 3, 6 and 9. A magic card followed by a card of the same series (📱 online, 👟 grassroots, 📑 staff) is a combo. Balance-checked: every strategy wins 49–52% when picked at random.
 - **Card-game feel.** Drag cards onto the field to play them; new cards flip in from the deck; type-coloured frames and foil epics; field, status, summon and trap effects stay visible on the board; turn banners, hit-stop, phone vibration, a win/lose finale, and background music and crowd sounds made with ElevenLabs.
 - **Tutorial, daily challenge, achievements.** A guided first game; a daily challenge where everyone plays the same deal; 16 achievements and a card collection (stored only on the player's device); a shareable 1080×1350 result card; and an attract mode that plays computer-vs-computer games when the game sits idle inside the Taipei Encore TV frame.
+- **Installable, works offline.** Add it to a phone's home screen (Android install prompt, or Safari → Share → Add to Home Screen) and it opens full-screen; games against the computer keep working without a connection. A generated service worker (`tools/gen_sw.mjs`, checked in CI) caches the site; pages and code are network-first so closure dates and topical-card expiry always come from the latest version.
+- **Custom effect art.** Status, summon, venue and other board effects use a hand-made icon set in the card-art style instead of system emoji, so they look the same on every device. Each mascot also has back-view reactions (hurt, happy, win, lose).
+- **Topical cards.** Time-limited cards based on recent campaign news, always as symmetric blue/green pairs or shared cards, each with sources, a start date and an automatic removal date (all gone by 2026-11-27).
 - **English and Traditional Chinese.** Browsers without Chinese get English automatically; `?lang=en` / `?lang=zh` or the link on the title screen switches and is remembered. Cards, crowd comments, rules and privacy text are all translated; rules and balance are identical, and English and Chinese players can play each other online.
 - **Two layouts.** 9:16 for phones, 16:9 for desktops, tablets and embedded TV frames (from 640×360 up).
 - **Election-law safeguards.** The whole site closes on voting day (2026-11-28, Taipei time); no poll content; no calls to vote.
@@ -146,6 +149,9 @@ Noncommercial use only. © 2026 Josh Tsai
 - **競選策略、場地事件、連擊**：開局從 3 張競選策略選 1 張（8 種通用打法，雙方選好後公開）；第 3、6、9 回合翻全場事件（颱風假、跨年晚會、捷運延誤…），雙方同時受影響；魔法卡接同系列主牌（📱網路、👟基層、📑幕僚）就是連擊。平衡模擬：隨機選策略時每張勝率 49–52%。
 - **卡牌手感**：拖曳出牌、抽牌翻面、類型色框與史詩閃卡、場地／狀態／召喚／陷阱效果留在場上、回合橫幅、打擊停頓、手機震動、勝負演出，以及 ElevenLabs 生成的背景音樂與群眾音效。
 - **教學、每日挑戰、成就**：互動教學；每天大家同一副牌的每日挑戰；16 個成就與卡牌圖鑑（只存在玩家裝置）；可分享的 1080×1350 戰績圖卡；嵌在台北安可電視台閒置時自動播電腦對電腦的展示對局。
+- **可安裝到手機桌面、離線可玩**：Android 會跳安裝提示，iPhone 用 Safari「分享 → 加入主畫面」；從桌面開啟是全螢幕，沒網路也能跟電腦對戰。離線快取由 `tools/gen_sw.mjs` 產生（部署前自動檢查），網頁與程式一律先抓最新版，關站日與時事卡下架不受快取影響。
+- **專屬特效圖示**：場上的狀態、召喚、場地與各種特效改用與卡圖同風格的自製圖示，不再依賴各家系統的 emoji；我方人偶背面也有受傷、開心、勝利、落敗四種表情。
+- **時事卡**：依近期選戰新聞製作的限時卡，一律藍綠成對或共用，每張附資料來源、上架日與自動下架日（11/27 前全部下架）。
 - **中英雙語**：瀏覽器語言沒有中文時自動顯示英文；網址加 `?lang=en`／`?lang=zh` 或首頁的語言連結可切換並記住。卡牌、群眾留言、規則、隱私聲明都有英文；規則與平衡完全相同，中英文玩家可以互相連線對戰。嵌在台北安可電視台時預設中文。
 - **雙版面**：手機 9:16；電腦、平板、電視台小畫框 16:9（640×360 起）。
 - **選罷法**：投票日（2026-11-28，台北時間）全站關閉；沒有民調內容、沒有投票呼籲。

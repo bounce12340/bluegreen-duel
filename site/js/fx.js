@@ -5,12 +5,15 @@
 
 const $ = (s) => document.querySelector(s);
 const other = (side) => (side === 'blue' ? 'green' : 'blue');
+// 自製特效圖示（assets/fx/*.webp），取代系統 emoji，各平台長得一樣
+const ic = (n) => `<img class="ic" src="assets/fx/${n}.webp" alt="" draggable="false">`;
 const reduced = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // 召喚物圖示（中英文名稱都對得到：連線時伺服器送中文名，英文版本機是英文名）
 const SUMMON_ICON = {
-  志工團: '🦺', Volunteers: '🦺', 青年軍: '📱', 'Youth Squad': '📱', 服務隊: '🛠️', 'Service Crew': '🛠️',
-  小編團: '💻', 'Social Team': '💻', 青鳥群: '🐦', 'Bluebird Flock': '🐦', 市政團隊: '👷', 'City Team': '👷',
+  志工團: ic('vest'), Volunteers: ic('vest'), 青年軍: ic('phone'), 'Youth Squad': ic('phone'), 服務隊: ic('tools'), 'Service Crew': ic('tools'),
+  小編團: ic('laptop'), 'Social Team': ic('laptop'), 青鳥群: ic('bird'), 'Bluebird Flock': ic('bird'), 市政團隊: ic('hardhat'), 'City Team': ic('hardhat'),
+  競辦小隊: ic('megaphone'), 'Campaign Crew': ic('megaphone'),
 };
 
 let battle, layer, stage, rain, venueFx;
@@ -132,24 +135,24 @@ function syncKeyed(parent, items, make, update) {
 
 function statusNode(id, side) {
   // 包圍：攻擊方是綠營就是青鳥，藍營就是工程帽
-  const swarm = other(side) === 'green' ? '🐦' : '👷';
+  const swarm = other(side) === 'green' ? ic('bird') : ic('hardhat');
   const ring = (icon, n) => Array.from({ length: n }, (_, i) => `<span style="animation-delay:${-(i * 2.4) / n}s">${icon}</span>`).join('');
   switch (id) {
     case 'encircle': return el('st st-encircle', ring(swarm, 6));
-    case 'question': return el('st st-question', '<span>❓</span><span>❓</span><span>❓</span><span class="mic">🎤</span>');
-    case 'deflect': return el('st st-deflect', ring('💫', 4));
-    case 'gaffe': return el('st st-gaffe', '<span>🤐</span><span class="x">🎙️</span>');
-    case 'exposed': return el('st st-exposed', '<i class="spot"></i><span>🔍</span>');
-    case 'sympathy': return el('st st-sympathy', '<i class="glow"></i><span>💗</span><span>💗</span><span>🥺</span>');
-    case 'burst': return el('st st-burst', '<i class="flame"></i><span>🔥</span>');
-    case 'ultBoost': return el('st st-boost', '<i class="dome"></i><span>🛡️</span>');
-    case 'reflect': return el('st st-reflect', '<i class="mirror"></i><span>🪞</span>');
+    case 'question': return el('st st-question', '<span>' + ic('question') + '</span><span>' + ic('question') + '</span><span>' + ic('question') + '</span><span class="mic">' + ic('mic') + '</span>');
+    case 'deflect': return el('st st-deflect', ring(ic('dizzy'), 4));
+    case 'gaffe': return el('st st-gaffe', '<span>' + ic('zip') + '</span><span class="x">' + ic('mic') + '</span>');
+    case 'exposed': return el('st st-exposed', '<i class="spot"></i><span>' + ic('magnify') + '</span>');
+    case 'sympathy': return el('st st-sympathy', '<i class="glow"></i><span>' + ic('heart') + '</span><span>' + ic('heart') + '</span><span>' + ic('plead') + '</span>');
+    case 'burst': return el('st st-burst', '<i class="flame"></i><span>' + ic('fire') + '</span>');
+    case 'ultBoost': return el('st st-boost', '<i class="dome"></i><span>' + ic('shield') + '</span>');
+    case 'reflect': return el('st st-reflect', '<i class="mirror"></i><span>' + ic('mirror') + '</span>');
     default: return null;
   }
 }
 
 function troopNode(sm, side) {
-  const icon = SUMMON_ICON[sm.name] || '👥';
+  const icon = SUMMON_ICON[sm.name] || ic('people');
   return el(`troop ${side}`, `<span>${icon}</span><span>${icon}</span><span>${icon}</span><b>×${sm.turns}</b>`);
 }
 
@@ -194,7 +197,7 @@ export function playFx(ev, ctx) {
         if (ev.trap === 'rain') setTimeout(() => rainFor(2600), 350);
         if (ev.trap === 'flip') setTimeout(() => ballots(key(other(ev.side))), 450);
         break;
-      case 'summon': flock(key(ev.side), SUMMON_ICON[ev.name] || '👥', 5); break;
+      case 'summon': flock(key(ev.side), SUMMON_ICON[ev.name] || ic('people'), 5); break;
       case 'field': spotlights(); break;
       case 'reflect': mirrorFlash(key(ev.side)); break;
       case 'miss': whoosh(key(ev.side)); break;
@@ -202,7 +205,7 @@ export function playFx(ev, ctx) {
       case 'sympathy': hearts(key(ev.side)); break;
       case 'burst': flameRing(key(ev.side)); break;
       case 'ult': ultFx(ev.ult, key(ev.side), key(other(ev.side)), ev.side); break;
-      case 'challenge': stamp(key(ev.caught ? other(ev.side) : ev.side), ev.caught ? '🚨' : '❌'); break;
+      case 'challenge': stamp(key(ev.caught ? other(ev.side) : ev.side), ev.caught ? ic('siren') : ic('cross')); break;
       case 'draw': drawCard(key(ev.side), ev.side); break;
       case 'combo': comboBurst(key(ev.side), ev.side); break;
       case 'venue': spotlights(); break;
@@ -248,22 +251,22 @@ function stream(fromKey, toKey, color, n) {
 function megaphone(k) {
   const h = head(k);
   pop('ripple', '', h, 1200, h.h);
-  pop('emoji-rise', '📣', h, 1200, h.h);
-  pop('emoji-rise late', '📈', { x: h.x + h.h * 0.25, y: h.y }, 1400, h.h);
+  pop('emoji-rise', ic('megaphone'), h, 1200, h.h);
+  pop('emoji-rise late', ic('chart'), { x: h.x + h.h * 0.25, y: h.y }, 1400, h.h);
 }
 function cardsToHand(k, n) {
   const from = body(k), hand = rectOf('#hand');
   for (let i = 0; i < n; i++) fly('<i class="mini-card"></i>', { x: battle.clientWidth / 2, y: battle.clientHeight * 0.35 }, { x: hand.cx + (i - 0.5) * 60, y: hand.cy }, { dur: 800, delay: i * 180, arc: -80 });
-  pop('emoji-rise', '🍱', head(k), 1200, from.h);
+  pop('emoji-rise', ic('bento'), head(k), 1200, from.h);
 }
 function sunrise(k) {
   const h = head(k);
-  pop('sun', '<i></i>☀️', h, 1600, h.h);
+  pop('sun', '<i></i>' + ic('sun'), h, 1600, h.h);
   const ap = rectOf('#ap');
   for (let i = 0; i < 2; i++) fly('<i class="ap-dot"></i>', h, { x: ap.x + 60 + i * 16, y: ap.cy }, { dur: 800, delay: 200 + i * 150 });
 }
 function impact(k, id) {
-  const icon = { encircle: '🌀', question: '❓', deflect: '💫', gaffe: '🤐', exposed: '🔍', sympathy: '🥺', burst: '🔥', ultBoost: '🛡️', reflect: '🪞' }[id];
+  const icon = { encircle: ic('cyclone'), question: ic('question'), deflect: ic('dizzy'), gaffe: ic('zip'), exposed: ic('magnify'), sympathy: ic('plead'), burst: ic('fire'), ultBoost: ic('shield'), reflect: ic('mirror') }[id];
   if (!icon) return;
   const h = body(k);
   pop('impact', `<i></i><span>${icon}</span>`, h, 1100, h.h);
@@ -284,7 +287,7 @@ function rainFor(ms) {
   rain._t = setTimeout(() => { rain.classList.remove('on'); setTimeout(() => rain.classList.add('hidden'), 500); }, ms);
 }
 function ballots(fromKey) {
-  for (let i = 0; i < 8; i++) fly('🗳️', body(fromKey), crowdPoint(), { dur: 900, delay: i * 70, arc: -90 });
+  for (let i = 0; i < 8; i++) fly(ic('ballot'), body(fromKey), crowdPoint(), { dur: 900, delay: i * 70, arc: -90 });
 }
 function flock(k, icon, n) {
   const to = body(k);
@@ -294,10 +297,10 @@ function flock(k, icon, n) {
 function spotlights() {
   stage.classList.remove('flash'); void stage.offsetWidth; stage.classList.add('flash');
 }
-function mirrorFlash(k) { const h = body(k); pop('mirror-flash', '<i></i><span>🪞</span>', h, 1200, h.h); }
-function whoosh(k) { const h = body(k); pop('whoosh', '💨', h, 1000, h.h); pop('emoji-rise', '💫', head(k), 1100, h.h); }
-function magnify(k) { const h = body(k); pop('magnify', '🔍', h, 1600, h.h); }
-function hearts(k) { const h = head(k); for (let i = 0; i < 5; i++) fly('💗', { x: h.x + (i - 2) * 14, y: h.y + h.h * 0.3 }, { x: h.x + (i - 2) * 30, y: h.y - h.h * 0.4 }, { dur: 1100, delay: i * 90, arc: -10 }); }
+function mirrorFlash(k) { const h = body(k); pop('mirror-flash', '<i></i><span>' + ic('mirror') + '</span>', h, 1200, h.h); }
+function whoosh(k) { const h = body(k); pop('whoosh', ic('wind'), h, 1000, h.h); pop('emoji-rise', ic('dizzy'), head(k), 1100, h.h); }
+function magnify(k) { const h = body(k); pop('magnify', ic('magnify'), h, 1600, h.h); }
+function hearts(k) { const h = head(k); for (let i = 0; i < 5; i++) fly(ic('heart'), { x: h.x + (i - 2) * 14, y: h.y + h.h * 0.3 }, { x: h.x + (i - 2) * 30, y: h.y - h.h * 0.4 }, { dur: 1100, delay: i * 90, arc: -10 }); }
 function flameRing(k) { const h = body(k); pop('flame-ring', '<i></i>', h, 1300, h.h); }
 function stamp(k, icon) { const h = body(k); pop('stamp', icon, h, 1200, h.h); }
 function rays(k, side) { const h = body(k); pop(`rays ${side}`, '<i></i>', h, 1800, h.h); }
@@ -307,22 +310,22 @@ function ultFx(id, k, ok, side) {
   const W = battle.clientWidth;
   switch (id) {
     case 'u_birds':
-      for (let i = 0; i < 12; i++) fly('🐦', { x: -40, y: battle.clientHeight * (0.2 + Math.random() * 0.4) }, { x: W + 40, y: battle.clientHeight * (0.15 + Math.random() * 0.4) }, { dur: 1600, delay: i * 80, arc: -50, cls: 'big' });
+      for (let i = 0; i < 12; i++) fly(ic('bird'), { x: -40, y: battle.clientHeight * (0.2 + Math.random() * 0.4) }, { x: W + 40, y: battle.clientHeight * (0.15 + Math.random() * 0.4) }, { dur: 1600, delay: i * 80, arc: -50, cls: 'big' });
       break;
     case 'u_team':
-      for (let i = 0; i < 10; i++) fly('👷', { x: W + 40, y: body(k).y + (i % 3) * 18 }, { x: -40, y: body(k).y + (i % 3) * 18 }, { dur: 1800, delay: i * 90, arc: -8, cls: 'big' });
+      for (let i = 0; i < 10; i++) fly(ic('hardhat'), { x: W + 40, y: body(k).y + (i % 3) * 18 }, { x: -40, y: body(k).y + (i % 3) * 18 }, { dur: 1800, delay: i * 90, arc: -8, cls: 'big' });
       break;
     case 'u_shield': { const h = body(k); pop('shield-dome', '<i></i>', h, 1800, h.h); break; }
     case 'u_reflect': mirrorFlash(k); break;
     case 'u_swap': {
       const a = body(k), b = body(ok);
-      for (let i = 0; i < 6; i++) { fly('🔄', a, b, { dur: 1000, delay: i * 80, arc: -120 }); fly('🔄', b, a, { dur: 1000, delay: i * 80, arc: 120 }); }
+      for (let i = 0; i < 6; i++) { fly(ic('swap'), a, b, { dur: 1000, delay: i * 80, arc: -120 }); fly(ic('swap'), b, a, { dur: 1000, delay: i * 80, arc: 120 }); }
       break;
     }
     case 'u_report': {
       const h = head(ok);
-      fly('📋', { x: W / 2, y: -40 }, h, { dur: 800, arc: 0, cls: 'big', scale: 1.4 });
-      setTimeout(() => stamp(ok, '✅'), 700);
+      fly(ic('clipboard'), { x: W / 2, y: -40 }, h, { dur: 800, arc: 0, cls: 'big', scale: 1.4 });
+      setTimeout(() => stamp(ok, ic('check')), 700);
       break;
     }
     default: break;
@@ -373,13 +376,13 @@ export function clearVictory() {
 // 場地事件的環境效果：整局背景跟著事件變化（颱風、煙火、捷運、夜間燈串、迷因、辯論直播、市集旗子）
 let venueNow = null;
 const VENUE_HTML = {
-  v_typhoon: '<i class="wind"></i><span class="vi">🌀</span>',
+  v_typhoon: '<i class="wind"></i><span class="vi">' + ic('cyclone') + '</span>',
   v_newyear: '<i class="fw a"></i><i class="fw b"></i><i class="fw c"></i>',
-  v_mrt: '<span class="train">🚇</span>',
+  v_mrt: '<span class="train">' + ic('train') + '</span>',
   v_artnight: '<i class="lights"></i>',
-  v_meme: '<span class="m a">📱</span><span class="m b">💬</span><span class="m c">🔁</span><span class="m d">😂</span>',
+  v_meme: '<span class="m a">' + ic('phone') + '</span><span class="m b">' + ic('chat') + '</span><span class="m c">' + ic('repost') + '</span><span class="m d">' + ic('laugh') + '</span>',
   v_debate: '<span class="live">● LIVE</span>',
-  v_market: '<i class="flags"></i><span class="vi">🛍️</span>',
+  v_market: '<i class="flags"></i><span class="vi">' + ic('bag') + '</span>',
 };
 function setVenue(id) {
   if (id === venueNow) return;
@@ -394,6 +397,6 @@ function comboBurst(k, side) {
   pop(`combo-pop ${side}`, '<b>COMBO!</b>', { x: h.x, y: h.y - h.h * 0.45 }, 1300, h.h);
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2;
-    fly('✨', h, { x: h.x + Math.cos(a) * h.h * 0.5, y: h.y + Math.sin(a) * h.h * 0.4 }, { dur: 700, arc: 0 });
+    fly(ic('sparkle'), h, { x: h.x + Math.cos(a) * h.h * 0.5, y: h.y + Math.sin(a) * h.h * 0.4 }, { dur: 700, arc: 0 });
   }
 }

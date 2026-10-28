@@ -73,16 +73,16 @@ const HAND_EN = {
 export const ULT_EN = {
   u_shield: { name: 'Resist China, Protect Taiwan', text: 'Double voter gains this turn, and clear 1 of your negative statuses' },
   u_birds: { name: 'Summon the Bluebirds', text: 'A bluebird flock stays for 3 turns, winning 3 voters each turn' },
-  u_swap: { name: 'Image Makeover', text: 'Swap all statuses between both sides, and win extra voters based on the round (from round 6)' },
+  u_swap: { name: 'Persona Shift', text: 'Swap all statuses between both sides, and win extra voters based on the round (from round 6)' },
   u_reflect: { name: 'Grand Deflection', text: 'Your opponent\'s next attack bounces back at them' },
   u_team: { name: 'Summon the City Team', text: 'The city team stays for 3 turns, winning 3 voters each turn' },
-  u_report: { name: 'City Report Card', text: 'Clear all your opponent\'s buffs, and win extra voters based on the round (from round 6)' },
+  u_report: { name: 'Steady as Ever', text: 'Clear all your opponent\'s buffs, and win extra voters based on the round (from round 6)' },
 };
 const STATUS_EN = {
   encircle: 'Surrounded', question: 'Grilled', deflect: 'Dizzy', gaffe: 'Gaffe', exposed: 'Exposed',
   sympathy: 'Sympathy vote', burst: 'Hype burst', ultBoost: 'Double gains', reflect: 'Deflect ready',
 };
-const SUMMON_EN = { 志工團: 'Volunteers', 青年軍: 'Youth Squad', 服務隊: 'Service Crew', 小編團: 'Social Team', 青鳥群: 'Bluebird Flock', 市政團隊: 'City Team' };
+const SUMMON_EN = { 志工團: 'Volunteers', 青年軍: 'Youth Squad', 服務隊: 'Service Crew', 小編團: 'Social Team', 青鳥群: 'Bluebird Flock', 市政團隊: 'City Team', 競辦小隊: 'Campaign Crew' };
 
 // 中文卡名 → 英文卡名（伺服器送來的事件裡是中文名，連線時用這個換）
 // 時事卡在 news_cards.js 裡自帶英文：en: { name, text, flavor }
@@ -204,6 +204,11 @@ const DICT = {
   '等對手選策略…': 'Waiting for your opponent to choose…', '雙方都選好就開始。': 'The game starts once you\'ve both chosen.',
   '{icon} {name}：{text}': '{icon} {name}: {text}',
   '🎵 背景音樂：開': '🎵 Music: on', '🎵 背景音樂：關': '🎵 Music: off',
+  '📲 安裝到桌面': '📲 Install app',
+  '已安裝！之後從桌面圖示就能開，沒網路也能跟電腦對戰': 'Installed! Open it from your home screen — you can play the computer even offline',
+  'iPhone／iPad：用 Safari 開這個網頁，點下方的「分享」按鈕，再選「加入主畫面」。': 'iPhone/iPad: open this page in Safari, tap the Share button, then choose “Add to Home Screen”.',
+  'Android：用 Chrome 開，點右上角「⋮」選單，選「安裝應用程式」或「加到主畫面」。': 'Android: open it in Chrome, tap the “⋮” menu, then choose “Install app” or “Add to Home screen”.',
+  '裝好後從桌面圖示開啟就是全螢幕；沒有網路時也能跟電腦對戰（連線對戰需要網路）。': 'Launched from the home screen it runs full-screen, and you can play the computer offline (online matches need a connection).',
   '🎓 新手教學': '🎓 Tutorial', '📅 每日挑戰': '📅 Daily challenge', '🏆 成就與圖鑑': '🏆 Achievements & cards',
   成就解鎖: 'Achievement unlocked', '每日挑戰 {d}：大家今天打同一副牌': 'Daily challenge {d}: everyone plays the same deal today',
   '每日挑戰 {d}': 'Daily challenge {d}', 今天已過關: 'Cleared today', 今天還沒過關: 'Not cleared yet today', '連勝 {n} 天': '{n}-day streak',

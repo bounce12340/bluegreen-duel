@@ -27,6 +27,9 @@ jobs:
       - name: 時事卡格式檢查（日期、來源、藍綠成對）
         run: node tools/news_check.mjs
 
+      - name: 檢查離線快取清單是否最新（PWA）
+        run: node tools/gen_sw.mjs --check
+
       - name: 卡牌內容合規＋嘲諷對稱檢查（Jev）
         env:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
@@ -70,6 +73,22 @@ jobs:
           for name in AGENTMAIL_API_KEY NOTIFY_EMAIL; do
             if [ -n "${!name}" ]; then printf '%s' "${!name}" | npx --yes wrangler@4 secret put "$name"; else echo "repo secret $name 沒有設定，略過"; fi
           done
+
+      - name: 寫入真人驗證（Turnstile）金鑰（repo secret 有設才寫）
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET: ${{ secrets.TURNSTILE_SECRET }}
+        # 兩把都有才寫；只有一把會讓驗證框出不來或永遠驗不過
+        run: |
+          if [ -n "$TURNSTILE_SITE_KEY" ] && [ -n "$TURNSTILE_SECRET" ]; then
+            printf '%s' "$TURNSTILE_SITE_KEY" | npx --yes wrangler@4 secret put TURNSTILE_SITE_KEY
+            printf '%s' "$TURNSTILE_SECRET" | npx --yes wrangler@4 secret put TURNSTILE_SECRET
+          else
+            echo "repo secret TURNSTILE_SITE_KEY／TURNSTILE_SECRET 沒有都設定，略過（被判為腳本的玩家改成暫停線上對戰）"
+          fi
 
       - name: 部署網站（Pages + /api 轉接）
         env:

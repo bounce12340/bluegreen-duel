@@ -635,3 +635,6 @@ html[lang="en"] .card .nm { overflow-wrap: anywhere; }
 /* 展示模式 */
 #demo-banner { position: absolute; z-index: 12; left: 50%; bottom: calc(var(--dock-h) + 60px); transform: translateX(-50%); background: rgba(20,28,40,.85); color: #fff; font-weight: 900; padding: 8px 18px; border-radius: 999px; border: 2px solid #ffcf3d; animation: urgent 1s ease-in-out infinite alternate; white-space: nowrap; }
 #demo-banner.hidden { display: none; }
+
+/* 自製特效圖示（取代 emoji）：大小跟著所在位置的字級走 */
+.fx-layer img.ic, .venue-fx img.ic { width: 1.15em; height: 1.15em; display: inline-block; vertical-align: middle; object-fit: contain; -webkit-user-drag: none; user-select: none; }

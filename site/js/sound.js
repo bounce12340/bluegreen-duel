@@ -81,7 +81,7 @@ function playSample(name, vol = 0.5) {
   });
 }
 // 先在背景下載，避免第一次播放時延遲
-export function preloadSamples() { sample('cheer'); sample('ooh'); }
+export function preloadSamples() { sample('cheer'); sample('ooh'); sample('boo'); }
 
 function tone(freq, dur, { type = 'sine', vol = 0.18, delay = 0, slide = 0 } = {}) {
   if (muted || remoteMuted || remoteVolume <= 0 || !ctx) return;
@@ -110,4 +110,5 @@ export const sfx = {
   lose: () => { [440, 392, 349, 294].forEach((f, i) => tone(f, 0.35, { type: 'triangle', delay: i * 0.18, vol: 0.12 })); },
   cheer: () => playSample('cheer', 0.45),
   ooh: () => playSample('ooh', 0.5),
+  boo: () => playSample('boo', 0.45),
 };

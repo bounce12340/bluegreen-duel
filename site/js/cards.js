@@ -103,12 +103,12 @@ export const ULTS = {
   green: [
     { id: 'u_shield', name: '抗中保台', text: '本回合拉票 ×2，並淨化自己 1 個負面狀態' },
     { id: 'u_birds', name: '召喚青鳥', text: '青鳥群停留 3 回合，每回合自動拉 3 人' },
-    { id: 'u_swap', name: '改變人設', text: '雙方所有狀態互換，並依回合數額外拉人（第 6 回合後）', minRound: 6 },
+    { id: 'u_swap', name: '變換人設', text: '雙方所有狀態互換，並依回合數額外拉人（第 6 回合後）', minRound: 6 },
   ],
   blue: [
     { id: 'u_reflect', name: '問A答B・大反射', text: '對方下一張攻擊卡轉向，效果改由對方承受' },
     { id: 'u_team', name: '召喚市政團隊', text: '市政團隊停留 3 回合，每回合自動拉 3 人' },
-    { id: 'u_report', name: '市政成績單', text: '清除對方所有增益，並依回合數額外拉人（第 6 回合後）', minRound: 6 },
+    { id: 'u_report', name: '始終如一', text: '清除對方所有增益，並依回合數額外拉人（第 6 回合後）', minRound: 6 },
   ],
 };
 

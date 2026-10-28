@@ -1,0 +1,18 @@
+{
+  "name": "藍綠攻防戰 Blue–Green Showdown",
+  "short_name": "藍綠攻防戰",
+  "description": "政治諷刺娛樂卡牌遊戲：拉攏中間選民，先過半的人贏！非任何候選人、政黨或競選團隊製作。",
+  "lang": "zh-Hant-TW",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#cfe6ff",
+  "theme_color": "#cfe6ff",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

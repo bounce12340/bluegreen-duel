@@ -66,6 +66,33 @@ let names = { blue: null, green: null }, reconnectUntil = 0, lobbySock = null;
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const crowd = createCrowd($('#crowd'));
 
+// ── 安裝到手機桌面（PWA）──────────────────
+// 在 iframe（台北安可）裡不註冊也不提示；已經從桌面圖示開啟的也不提示。
+let installEvt = null;
+function inFrame() { try { return window.self !== window.top; } catch { return true; } }
+function setupPWA() {
+  if (inFrame()) return;
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => { /* 不支援或被擋就算了，照常線上玩 */ });
+  }
+  const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+  const btn = $('#install-link');
+  if (standalone || !btn) return;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; btn.classList.remove('hidden'); });
+  window.addEventListener('appinstalled', () => { installEvt = null; btn.classList.add('hidden'); toast(t('已安裝！之後從桌面圖示就能開，沒網路也能跟電腦對戰')); });
+  if (ios) btn.classList.remove('hidden');
+  btn.addEventListener('click', async () => {
+    if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch { /* 忽略 */ } installEvt = null; return; }
+    openModal(`<h2>${t('📲 安裝到桌面')}</h2>
+      <p>${t('iPhone／iPad：用 Safari 開這個網頁，點下方的「分享」按鈕，再選「加入主畫面」。')}</p>
+      <p>${t('Android：用 Chrome 開，點右上角「⋮」選單，選「安裝應用程式」或「加到主畫面」。')}</p>
+      <p class="small">${t('裝好後從桌面圖示開啟就是全螢幕；沒有網路時也能跟電腦對戰（連線對戰需要網路）。')}</p>
+      <div class="btns"><button class="btn primary" id="m-ok">${t('知道了')}</button></div>`);
+    $('#m-ok').onclick = closeModal;
+  });
+}
+
 // ── 啟動與關站判斷 ───────────────────────
 function taipeiToday() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date());
@@ -118,6 +145,7 @@ async function init() {
   });
   updateMuteIcon();
   initFx();
+  setupPWA();
   if (!PG.getStats().games) { const tl = $('[data-open="tutorial"]'); if (tl) tl.classList.add('hot'); }
   setupAttract();
   setupEncoreRemote();
@@ -160,6 +188,8 @@ function setupBattle(side) {
   closeModal();
   show('battle');
   $('#me-mascot').src = `assets/${me}_back.webp`;
+  for (const x of ['hurt', 'happy', 'win', 'lose']) new Image().src = `assets/${me}_back_${x}.webp`; // 先載好，換表情時不閃
+  clearTimeout(meFaceTimer);
   $('#me-mascot').alt = `${SIDE_NAME[me]}${t('（我方）')}`;
   setOppFace('idle');
   $('#opp-plat').className = `platform opp-plat ${opp}`;
@@ -356,11 +386,20 @@ function baseFace() {
   if (o.supporters - m.supporters >= 12) return 'smug';
   return 'idle';
 }
+// 我方人偶背面的表情：hit→hurt、joy→happy、big→win；一陣子後回到原本的背影
+let meFaceTimer = null;
+function setMeBack(expr) {
+  $('#me-mascot').src = `assets/${me}_back${expr ? `_${expr}` : ''}.webp`;
+}
 function meReact(cls) {
   const el = $('#me-mascot');
   el.classList.remove('hit', 'joy', 'big');
   void el.offsetWidth; // 重新觸發動畫
   el.classList.add(cls);
+  if (game && game.over) return;
+  setMeBack({ hit: 'hurt', joy: 'happy', big: 'win' }[cls] || null);
+  clearTimeout(meFaceTimer);
+  meFaceTimer = setTimeout(() => { if (!(game && game.over)) setMeBack(null); }, cls === 'big' ? 1600 : 1300);
 }
 function pulse(side, cls) {
   if (side === me) meReact(cls);
@@ -567,6 +606,7 @@ function fxEvent(ev) {
         break;
       case 'status':
         sfx.status();
+        if (ev.status === 'gaffe') sfx.boo();
         toast(t('{who}：{icon}{name}', { who, icon: STATUS_INFO[ev.status].icon, name: STATUS_INFO[ev.status].name }), ev.side);
         if (STATUS_INFO[ev.status].bad) { pulse(ev.side, 'hit'); if (ev.side === me) oppReact('smug'); chatter('status'); }
         break;
@@ -608,7 +648,7 @@ function fxEvent(ev) {
       case 'challenge': {
         sfx.trap();
         if (ev.n > 0) floatNum(ev.caught ? other(ev.side) : ev.side, `-${ev.n}`, true);
-        if (ev.caught) { floatNum(other(ev.side), t('聲量 -{n}', { n: RULES.caughtVoice }), true); hitStop(140); sfx.ooh(); if (other(ev.side) === me) buzz([90]); }
+        if (ev.caught) { floatNum(other(ev.side), t('聲量 -{n}', { n: RULES.caughtVoice }), true); hitStop(140); sfx.boo(); if (other(ev.side) === me) buzz([90]); }
         else if (ev.side === me) buzz([60]);
         chatter(ev.caught ? 'caught' : 'wrong');
         const iChallenged = ev.side === me;
@@ -631,6 +671,9 @@ function fxEvent(ev) {
       case 'gameOver':
         if (game && game.winner !== 'draw') {
           victory(game.winner === me ? 'me' : 'opp', game.winner);
+          clearTimeout(meFaceTimer); clearTimeout(faceTimer);
+          setMeBack(game.winner === me ? 'win' : 'lose');
+          setOppFace(game.winner === opp ? 'win' : 'lose');
           buzz(game.winner === me ? [30, 40, 30, 40, 120] : [220]);
         }
         setTimeout(showResult, 2000);
