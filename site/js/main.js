@@ -1310,6 +1310,9 @@ function armAttract() {
 }
 function stopAttract() { clearTimeout(attractTimer); }
 function startDemo() {
+  // 電視台可能整夜開著：跨日到投票日就不再播展示，直接顯示關閉畫面
+  const reason = closedReason();
+  if (reason) { gen += 1; game = null; syncBoard(null); crowd.stop(); music(false); $('#closed-msg').textContent = tr(reason); show('closed'); return; }
   gen += 1;
   mode = 'local';
   gameKind = 'demo';

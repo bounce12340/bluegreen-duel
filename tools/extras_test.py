@@ -2,7 +2,7 @@
 import os, subprocess, sys, time
 os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
 from playwright.sync_api import sync_playwright
-OUT=sys.argv[1]; LOC=sys.argv[2] if len(sys.argv)>2 else "zh-TW"; os.makedirs(OUT, exist_ok=True)
+BASE=os.environ.get("BASE", "http://localhost:8771/"); OUT=sys.argv[1]; LOC=sys.argv[2] if len(sys.argv)>2 else "zh-TW"; os.makedirs(OUT, exist_ok=True)
 srv = subprocess.Popen([sys.executable, "-m", "http.server", "8771"], cwd=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "site"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(1); errs=[]
 def newpage(b, **kw):
@@ -22,7 +22,7 @@ try:
   with sync_playwright() as p:
     b=p.chromium.launch()
     # 1 教學
-    ctx,pg=newpage(b); pg.goto("http://localhost:8771/index.html"); pg.wait_for_timeout(800)
+    ctx,pg=newpage(b); pg.goto(BASE + "index.html"); pg.wait_for_timeout(800)
     pg.screenshot(path=f"{OUT}/0title.png")
     pg.click('[data-open="tutorial"]'); pg.wait_for_timeout(300); pg.click("#m-tg"); pg.wait_for_timeout(500)
     pg.screenshot(path=f"{OUT}/1tut_policy.png"); pg.locator(".policy-item").first.click(); pg.wait_for_timeout(600)
@@ -46,7 +46,7 @@ try:
     # 2 每日挑戰：兩個玩家同一天的開局手牌一樣
     hands=[]
     for i in range(2):
-        ctx,pg=newpage(b); pg.goto("http://localhost:8771/index.html"); pg.evaluate("localStorage.setItem('bg_seen_help','1')"); pg.reload(); pg.wait_for_timeout(600)
+        ctx,pg=newpage(b); pg.goto(BASE + "index.html"); pg.evaluate("localStorage.setItem('bg_seen_help','1')"); pg.reload(); pg.wait_for_timeout(600)
         pg.click('[data-open="daily"]'); pg.wait_for_timeout(300)
         if i==0: pg.screenshot(path=f"{OUT}/8daily.png")
         pg.click("#m-go"); pg.wait_for_timeout(500)
@@ -56,14 +56,14 @@ try:
         ctx.close()
     print("daily same deal:", hands[0]==hands[1], hands[0])
     # 3 圖鑑與成就（用剛剛教學的紀錄）
-    ctx,pg=newpage(b); pg.goto("http://localhost:8771/index.html"); pg.wait_for_timeout(600)
+    ctx,pg=newpage(b); pg.goto(BASE + "index.html"); pg.wait_for_timeout(600)
     pg.evaluate("localStorage.setItem('bg_seen_cards', JSON.stringify(['s_street','s_buzz','b_news','g_flash','s_rain','g_rally'])); localStorage.setItem('bg_ach', JSON.stringify({first_win: 1, combo_1: 1}))")
     pg.reload(); pg.wait_for_timeout(600)
     pg.click('[data-open="album"]'); pg.wait_for_timeout(300); pg.screenshot(path=f"{OUT}/9album.png")
     pg.click('[data-tab="cards"]'); pg.wait_for_timeout(300); pg.screenshot(path=f"{OUT}/9b_gallery.png")
     ctx.close()
     # 4 展示模式
-    ctx,pg=newpage(b); pg.goto("http://localhost:8771/index.html?tv=1"); pg.evaluate("localStorage.setItem('bg_seen_help','1')"); pg.reload()
+    ctx,pg=newpage(b); pg.goto(BASE + "index.html?tv=1"); pg.evaluate("localStorage.setItem('bg_seen_help','1')"); pg.reload()
     pg.wait_for_timeout(27500); pg.screenshot(path=f"{OUT}/10demo.png")
     print("demo running:", pg.locator("#demo-banner:not(.hidden)").count(), "battle:", pg.locator("#battle:not(.hidden)").count())
     pg.wait_for_timeout(6000); pg.keyboard.press("Enter"); pg.wait_for_timeout(600)
