@@ -14,7 +14,7 @@ function walk(dir) {
   for (const name of readdirSync(dir).sort()) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) out.push(...walk(p));
-    else if (!SKIP.has(relative(SITE, p)) && !name.startsWith('.')) out.push(p);
+    else if (!SKIP.has(relative(SITE, p)) && !name.startsWith('.') && !relative(SITE, p).startsWith('assets/promo/')) out.push(p);  // 宣傳影片不放離線快取
   }
   return out;
 }
