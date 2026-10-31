@@ -1,0 +1,9 @@
+{
+  "_說明": "作者人工核准過的卡：Jev 在指定規則上打出 0.7～0.8 時只列警告、不擋部署；0.8 以上仍然擋。只放作者明確核准過的卡，並寫上核准日期。英文版（id 加 _en）自動適用同一筆核准。指控、民調等時事卡規則（門檻 0.5）不能放寬。",
+  "maxScore": 0.8,
+  "cards": [
+    { "id": "n_deb_match", "rule": "quotes_real_person", "approvedOn": "2026-10-31", "by": "作者", "note": "卡名取自辯論中的公開發言；台詞為匿名網友口吻" },
+    { "id": "n_deb_morning", "rule": "quotes_real_person", "approvedOn": "2026-10-31", "by": "作者", "note": "卡名取自辯論結辯的公開發言" },
+    { "id": "n_deb_whosaid", "rule": "quotes_real_person", "approvedOn": "2026-10-31", "by": "作者", "note": "卡名取自交叉詰問的公開發言" }
+  ]
+}

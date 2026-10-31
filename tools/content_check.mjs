@@ -3,7 +3,7 @@
 // - 合規：任一規則機率 ≥ 0.7 → 不合格（--report-only 時只報告）；0.3–0.7 → 需要人工看
 // - 對稱：每張卡「酸到哪一邊 × 有多酸」加總，比較藍綠兩邊被酸的總量
 // - Jev 呼叫失敗：視為「沒檢查到」，印出警告，不當成合格或不合格
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { CARDS, ULTS, POLICIES, VENUES } from '../site/js/cards.js';
 import { CHATTER, TONE_TAG, CHATTER_EN, TONE_TAG_EN } from '../site/js/chatter.js';
 import { CARD_EN, ULT_EN, POLICY_EN, VENUE_EN } from '../site/js/i18n.js';
@@ -91,6 +91,9 @@ const queue = [...items];
 await Promise.all([worker(queue), worker(queue), worker(queue), worker(queue)]);
 results.sort((a, b) => items.findIndex((x) => x.id === a.id) - items.findIndex((x) => x.id === b.id));
 
+// 作者人工核准清單（tools/human_approved.json）：核准過的卡在指定規則 0.7～maxScore 之間只警告不擋
+const APPROVED = JSON.parse(readFileSync(new URL('./human_approved.json', import.meta.url), 'utf8'));
+const approvedFor = (id, key) => APPROVED.cards.find((c) => (c.id === id || `${c.id}_en` === id) && c.rule === key);
 const fails = [], reviews = [];
 let blue = 0, green = 0;
 const contrib = [];
@@ -101,7 +104,9 @@ for (const r of results) {
     const v = r.scores[rule.key];
     // 時事卡：陳述真實事件有附來源，不算不合格；指控與民調門檻放嚴到 0.5
     const failAt = r.news && rule.key === 'states_real_event' ? 2 : r.news && NEWS_RULES.includes(rule) ? 0.5 : FAIL_AT;
-    if (v >= failAt) fails.push({ id: r.id, name: r.card.name, rule: rule.label, p: v });
+    const ok = approvedFor(r.id, rule.key);
+    if (v >= failAt && ok && failAt === FAIL_AT && v < APPROVED.maxScore) reviews.push({ id: r.id, name: r.card.name, rule: `${rule.label}（作者 ${ok.approvedOn} 核准，未達 ${APPROVED.maxScore} 不擋）`, p: v });
+    else if (v >= failAt) fails.push({ id: r.id, name: r.card.name, rule: rule.label, p: v });
     else if (v >= REVIEW_AT) reviews.push({ id: r.id, name: r.card.name, rule: rule.label, p: v });
   }
   const b = r.scores.pokes_blue * r.scores.harshness;
