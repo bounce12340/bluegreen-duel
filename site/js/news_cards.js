@@ -139,19 +139,6 @@ export const NEWS_CARDS = [
     sources: ['https://news.ltn.com.tw/news/politics/breakingnews/5624789', 'https://news.ebc.net.tw/news/politics/578369'],
     topic: '交叉詰問時，沈伯洋追問「你剛剛的回答真的跟我的問題有搭嗎？」',
     en: { name: 'Does That Answer It?', text: 'Your opponent\'s next 2 cards cost 1 more AP each', flavor: 'The question and the answer seem to be in different studios.' } },
-  // 約第二場：一邊說加 Line，一邊說團隊可以溝通
-  { id: 'n_deb_coord', pair: 'n_deb_line', side: 'blue', type: 'magic', cost: 1, rarity: 'common',
-    name: '團隊溝通協調', text: '抽 2 張（不佔回合）', fx: { draw: 2 }, flavor: '所以到底有沒有第二場 幕僚群組炸了吧', tone: 'arrow',
-    from: '2026-10-31', until: '2026-11-20',
-    sources: ['https://www.chinatimes.com/realtimenews/20261031002056-260407'],
-    topic: '被問能否再約辯論，蔣萬安回「兩個團隊都可以溝通協調」',
-    en: { name: 'Teams Will Coordinate', text: 'Draw 2 (free action)', flavor: 'So is there a round two? The staff group chat must be on fire.' } },
-  { id: 'n_deb_line', pair: 'n_deb_coord', side: 'green', type: 'magic', cost: 1, rarity: 'common',
-    name: '晚點加Line', text: '抽 2 張（不佔回合）', fx: { draw: 2 }, flavor: '辯論辯到要加好友 這屆選舉好有人情味', tone: 'push',
-    from: '2026-10-31', until: '2026-11-20',
-    sources: ['https://www.chinatimes.com/realtimenews/20261031002056-260407', 'https://news.ltn.com.tw/news/politics/breakingnews/5624827'],
-    topic: '沈伯洋當場邀第二場辯論：「晚一點加 Line 也可以」',
-    en: { name: 'Add Me on LINE Later', text: 'Draw 2 (free action)', flavor: 'A debate that ends in a friend request — how wholesome.' } },
 ];
 
 // 沒有專屬插圖的時事卡用通用的「快訊」圖
