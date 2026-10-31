@@ -139,6 +139,21 @@ export const NEWS_CARDS = [
     sources: ['https://news.ltn.com.tw/news/politics/breakingnews/5624789', 'https://news.ebc.net.tw/news/politics/578369'],
     topic: '交叉詰問時，沈伯洋追問「你剛剛的回答真的跟我的問題有搭嗎？」',
     en: { name: 'Does That Answer It?', text: 'Your opponent\'s next 2 cards cost 1 more AP each', flavor: 'The question and the answer seem to be in different studios.' } },
+  // 答題風格的網路梗：雙方各自的「自嘲卡」，效果與藍營基本卡「問A答B」相同（作者 10/31 決定）
+  { id: 'n_meme_wusaki', pair: 'n_meme_boyang', side: 'blue', type: 'status', cost: 1, rarity: 'common',
+    name: '武薩奇時刻', short: '對方下張攻擊 50% 打歪', text: '對方下一張攻擊卡 50% 機率打歪', fx: { applyStatus: { id: 'deflect', turns: 2 } },
+    flavor: '一個表情就是一張梗圖 宣傳費都省了', tone: 'arrow',
+    from: '2026-10-31', until: '2026-11-20',
+    sources: ['https://news.nextapple.com/politics/20261021/71B9EDC91F10C574F0BDE03CE0271ED1', 'https://www.businesstoday.com.tw/article/category/183027/post/202610210011/'],
+    topic: '節目專訪蔣萬安時主持人問「回答跟題目有沒有搭」，困惑表情成了網路迷因',
+    en: { name: 'Puzzled-Face Moment', text: 'Your opponent\'s next attack has a 50% chance to miss', flavor: 'One facial expression, one free meme — no ad budget needed.' } },
+  { id: 'n_meme_boyang', pair: 'n_meme_wusaki', side: 'green', type: 'status', cost: 1, rarity: 'common',
+    name: '伯洋體', short: '對方下張攻擊 50% 打歪', text: '對方下一張攻擊卡 50% 機率打歪', fx: { applyStatus: { id: 'deflect', turns: 2 } },
+    flavor: '不管題目從哪來 都能接回自己的主張', tone: 'arrow',
+    from: '2026-10-31', until: '2026-11-20',
+    sources: ['https://udn.com/news/story/124652/9528894', 'https://www.chinatimes.com/realtimenews/20261014000042-260407'],
+    topic: '評論者把沈伯洋的答題方式稱為「伯洋體」，網路衍生成梗圖',
+    en: { name: 'Boyang-Style Answer', text: 'Your opponent\'s next attack has a 50% chance to miss', flavor: 'Whatever the question, it lands back on the same talking point.' } },
 ];
 
 // 沒有專屬插圖的時事卡用通用的「快訊」圖
