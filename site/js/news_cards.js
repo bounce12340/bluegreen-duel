@@ -146,7 +146,7 @@ export const NEWS_CARDS = [
     from: '2026-10-31', until: '2026-11-20',
     sources: ['https://news.nextapple.com/politics/20261021/71B9EDC91F10C574F0BDE03CE0271ED1', 'https://www.businesstoday.com.tw/article/category/183027/post/202610210011/'],
     topic: '節目專訪蔣萬安時主持人問「回答跟題目有沒有搭」，困惑表情成了網路迷因',
-    en: { name: 'Puzzled-Face Moment', text: 'Your opponent\'s next attack has a 50% chance to miss', flavor: 'One facial expression, one free meme — no ad budget needed.' } },
+    en: { name: 'Puzzled-Face Moment', text: 'Your opponent\'s next attack has a 50% chance to miss', flavor: 'One reaction shot, one free meme — no ad budget needed.' } },
   { id: 'n_meme_boyang', pair: 'n_meme_wusaki', side: 'green', type: 'status', cost: 1, rarity: 'common',
     name: '伯洋體', short: '對方下張攻擊 50% 打歪', text: '對方下一張攻擊卡 50% 機率打歪', fx: { applyStatus: { id: 'deflect', turns: 2 } },
     flavor: '不管題目從哪來 都能接回自己的主張', tone: 'arrow',
