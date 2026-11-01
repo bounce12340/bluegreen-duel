@@ -82,7 +82,7 @@ const STATUS_EN = {
   encircle: 'Surrounded', question: 'Grilled', deflect: 'Dizzy', gaffe: 'Gaffe', exposed: 'Exposed',
   sympathy: 'Sympathy vote', burst: 'Hype burst', ultBoost: 'Double gains', reflect: 'Deflect ready',
 };
-const SUMMON_EN = { 志工團: 'Volunteers', 青年軍: 'Youth Squad', 服務隊: 'Service Crew', 小編團: 'Social Team', 青鳥群: 'Bluebird Flock', 市政團隊: 'City Team', 競辦小隊: 'Campaign Crew' };
+const SUMMON_EN = { 志工團: 'Volunteers', 青年軍: 'Youth Squad', 服務隊: 'Service Crew', 小編團: 'Social Team', 青鳥群: 'Bluebird Flock', 市政團隊: 'City Team', 競辦小隊: 'Campaign Crew', 無人公車: 'Driverless Bus', 健身小巴: 'Fitness Van' };
 
 // 中文卡名 → 英文卡名（伺服器送來的事件裡是中文名，連線時用這個換）
 // 時事卡在 news_cards.js 裡自帶英文：en: { name, text, flavor }

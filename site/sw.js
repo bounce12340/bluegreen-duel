@@ -1,7 +1,7 @@
 // 離線快取（PWA）。這個檔案由 tools/gen_sw.mjs 產生，請勿手改；改了 site/ 的檔案要重跑一次。
 // 策略：網頁、程式、樣式「先網路、失敗才用快取」（關站日、時事卡下架都以最新版為準）；
 // 圖片、音效「先快取」。/api（連線對戰）一律不快取。
-const VERSION = '93d1e1bd16fa';
+const VERSION = 'de545962a3b9';
 const CACHE = `bgd-${VERSION}`;
 const FILES = [
   './',
@@ -40,6 +40,12 @@ const FILES = [
   './assets/cards/g_speech.webp',
   './assets/cards/g_volunteer.webp',
   './assets/cards/g_youth.webp',
+  './assets/cards/n_bus_driverless.webp',
+  './assets/cards/n_bus_fitness.webp',
+  './assets/cards/n_line_boulevard.webp',
+  './assets/cards/n_line_civic.webp',
+  './assets/cards/n_time_free.webp',
+  './assets/cards/n_time_parent.webp',
   './assets/cards/news.webp',
   './assets/cards/s_buzz.webp',
   './assets/cards/s_early.webp',

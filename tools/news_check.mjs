@@ -9,6 +9,8 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ids = new Set(CARDS.map((c) => c.id));
 const byId = Object.fromEntries(NEWS_CARDS.map((c) => [c.id, c]));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// 召喚物名稱只是顯示用（例如「無人公車」對「健身小巴」），比對效果時不算
+const fxCore = (fx) => (fx && fx.summon ? { ...fx, summon: { ...fx.summon, name: undefined } } : fx);
 for (const c of NEWS_CARDS) {
   const e = (m) => errs.push(`${c.id || '（沒有 id）'}：${m}`);
   if (!/^n_[a-z0-9_]+$/.test(c.id || '')) e('id 要用 n_ 開頭的小寫英數');
@@ -26,7 +28,7 @@ for (const c of NEWS_CARDS) {
     const p = byId[c.pair];
     if (!p) e('藍綠卡要用 pair 指向另一邊的對應卡');
     else if (p.side === c.side || p.pair !== c.id) e('pair 要指向「另一邊」而且互相指向');
-    else if (p.type !== c.type || p.cost !== c.cost || p.rarity !== c.rarity || !same(p.fx, c.fx)) e('和對應卡的類型、費用、稀有度或效果不同（藍綠要對稱）');
+    else if (p.type !== c.type || p.cost !== c.cost || p.rarity !== c.rarity || !same(fxCore(p.fx), fxCore(c.fx))) e('和對應卡的類型、費用、稀有度或效果不同（藍綠要對稱）');
     else if (p.from !== c.from || p.until !== c.until) e('和對應卡的上下架日期不同');
   }
 }

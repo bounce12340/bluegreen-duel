@@ -14,6 +14,7 @@ const SUMMON_ICON = {
   志工團: ic('vest'), Volunteers: ic('vest'), 青年軍: ic('phone'), 'Youth Squad': ic('phone'), 服務隊: ic('tools'), 'Service Crew': ic('tools'),
   小編團: ic('laptop'), 'Social Team': ic('laptop'), 青鳥群: ic('bird'), 'Bluebird Flock': ic('bird'), 市政團隊: ic('hardhat'), 'City Team': ic('hardhat'),
   競辦小隊: ic('megaphone'), 'Campaign Crew': ic('megaphone'),
+  無人公車: ic('train'), 'Driverless Bus': ic('train'), 健身小巴: ic('heart'), 'Fitness Van': ic('heart'),
 };
 
 let battle, layer, stage, rain, venueFx;
