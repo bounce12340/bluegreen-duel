@@ -3,6 +3,8 @@
 // 召喚出來的小隊、蓋著的陷阱牌。單次效果跟著事件播放（playFx）：拉票人潮、挖角、下雨、翻牌、大絕招等。
 // 純裝飾：不改遊戲狀態；位置一律從人偶與平台的實際位置算，直式、橫式版面都適用。
 
+import { confettiBurst, weather, ultLottie, shockwave } from './fxplus.js';
+
 const $ = (s) => document.querySelector(s);
 const other = (side) => (side === 'blue' ? 'green' : 'blue');
 // 自製特效圖示（assets/fx/*.webp），取代系統 emoji，各平台長得一樣
@@ -67,6 +69,12 @@ function crowdPoint() {
   const W = battle.clientWidth, H = battle.clientHeight;
   return wide() ? { x: W * (0.38 + Math.random() * 0.24), y: H * (0.56 + Math.random() * 0.05) }
     : { x: W * (0.15 + Math.random() * 0.7), y: H * (0.46 + Math.random() * 0.07) };
+}
+// 對戰畫面中央（震波打擊點）與「換算成 0–1 的全螢幕座標」（彩帶用）
+const centerOf = () => ({ x: battle.clientWidth / 2, y: battle.clientHeight * 0.5 });
+function norm(p) {
+  const b = battle.getBoundingClientRect();
+  return { x: (b.left + p.x) / window.innerWidth, y: (b.top + p.y) / window.innerHeight };
 }
 const mascotOf = (key) => rectOf(key === 'me' ? '#me-mascot' : '#opp-mascot');
 
@@ -181,7 +189,6 @@ export function playFx(ev, ctx) {
   try {
     switch (ev.type) {
       case 'pull': if (ev.n > 0) stream(null, key(ev.side), ev.side, Math.min(14, 3 + ev.n)); break;
-      case 'poach': if (ev.n > 0) stream(key(other(ev.side)), key(ev.side), ev.side, Math.min(12, 3 + ev.n)); break;
       case 'encircle': if (ev.n > 0) stream(key(ev.side), key(other(ev.side)), other(ev.side), 4 + ev.n); break;
       case 'play': {
         const c = !ev.hidden && ctx.card(ev.card);
@@ -189,13 +196,20 @@ export function playFx(ev, ctx) {
         if (c.fx.voice) megaphone(key(ev.side));
         if (c.fx.draw) cardsToHand(key(ev.side), c.fx.draw);
         if (c.fx.ap) sunrise(key(ev.side));
+        // 大招（拉 9 人以上）：背景震波
+        if (c.type === 'attack' && (c.fx.pull || 0) >= 9) setTimeout(() => shockwave(centerOf(), ev.side, c.fx.pull >= 14 ? 1.4 : 1), 150);
+        break;
+      }
+      case 'poach': {
+        if (ev.n > 0) stream(key(other(ev.side)), key(ev.side), ev.side, Math.min(12, 3 + ev.n));
+        if (ev.n >= 5) { const b = body(key(other(ev.side))); shockwave({ x: b.x, y: b.y }, ev.side, 0.8); }
         break;
       }
       case 'status': impact(key(ev.side), ev.status); break;
       case 'setTrap': trapDrop(key(ev.side), ev.side); break;
       case 'trap':
         trapFlip(key(ev.side), ev.side, ev.trap);
-        if (ev.trap === 'rain') setTimeout(() => rainFor(2600), 350);
+        if (ev.trap === 'rain') setTimeout(() => { rainFor(2600); weather('storm', 3000); }, 350); // 雨天備案、颱風假：真的下一陣大雨
         if (ev.trap === 'flip') setTimeout(() => ballots(key(other(ev.side))), 450);
         break;
       case 'summon': flock(key(ev.side), SUMMON_ICON[ev.name] || ic('people'), 5); break;
@@ -207,8 +221,14 @@ export function playFx(ev, ctx) {
       case 'burst': flameRing(key(ev.side)); break;
       case 'ult': ultFx(ev.ult, key(ev.side), key(other(ev.side)), ev.side); break;
       case 'challenge': stamp(key(ev.caught ? other(ev.side) : ev.side), ev.caught ? ic('siren') : ic('cross')); break;
-      case 'draw': drawCard(key(ev.side), ev.side); break;
-      case 'combo': comboBurst(key(ev.side), ev.side); break;
+      case 'draw': {
+        drawCard(key(ev.side), ev.side);
+        // 抽到史詩卡：手牌那邊噴金色星星（只看自己的，不洩漏對手手牌）
+        const dc = key(ev.side) === 'me' && ev.card && ctx.card(ev.card);
+        if (dc && dc.rarity === 'epic') { const h = rectOf('#hand'); setTimeout(() => confettiBurst('epic', ev.side, norm({ x: h.cx, y: h.cy })), 450); }
+        break;
+      }
+      case 'combo': { comboBurst(key(ev.side), ev.side); const b = body(key(ev.side)); confettiBurst('combo', ev.side, norm(b)); break; }
       case 'venue': spotlights(); break;
       default: break;
     }
@@ -308,6 +328,9 @@ function rays(k, side) { const h = body(k); pop(`rays ${side}`, '<i></i>', h, 18
 
 function ultFx(id, k, ok, side) {
   rays(k, side);
+  // 大絕招：全螢幕 Lottie 動畫（變換人設、始終如一）＋背景震波；其他絕招噴彩帶
+  ultLottie(id, side).then((played) => { if (!played) confettiBurst('ult', side, norm(body(k))); });
+  shockwave(body(k), side, 1.6);
   const W = battle.clientWidth;
   switch (id) {
     case 'u_birds':
@@ -369,6 +392,8 @@ export function victory(winKey, side) {
     a.onfinish = () => c.remove();
   }
   rays(winKey, side);
+  confettiBurst('win', side);
+  weather('fireworks', 4200, side === 'blue' ? ['#2f6fd6', '#8db6ff', '#ffcf3d', '#ffffff'] : ['#1f9a55', '#8fe3b3', '#ffcf3d', '#ffffff']);
 }
 export function clearVictory() {
   for (const sel of ['#me-mascot', '#opp-mascot']) { const m = $(sel); if (m) m.classList.remove('champion', 'defeated'); }
@@ -389,6 +414,8 @@ function setVenue(id) {
   if (id === venueNow) return;
   venueNow = id;
   venueFx.className = `venue-fx ${id || 'hidden'}`;
+  // 颱風場地整局飄小雨、跨年場地放煙火；換掉場地就停
+  weather(id === 'v_typhoon' ? 'rain' : id === 'v_newyear' ? 'fireworks' : null);
   venueFx.innerHTML = id ? (VENUE_HTML[id] || '') : '';
 }
 

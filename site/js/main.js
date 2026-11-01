@@ -9,6 +9,8 @@ import {
 import { aiStep, respondDecision, newProfile, observeEvents, EASE_NAMES, EASE_MAX, aiChoosePolicy } from './ai.js';
 import { createCrowd } from './crowd.js';
 import { initFx, syncBoard, playFx, victory, clearVictory } from './fx.js';
+import { initHolo, holoClass } from './holo.js';
+import { prefetchFx, versusIntro, resultTransition, withViewTransition } from './fxplus.js';
 import * as PG from './progress.js';
 import { drawShareCard, shareImage } from './share.js';
 import { CARDS, POLICIES, VENUES } from './cards.js';
@@ -102,9 +104,13 @@ function closedReason() {
   if (CONFIG.CLOSED_DATES.includes(taipeiToday())) return CONFIG.CLOSED_MSG;
   return null;
 }
-function show(id) {
-  for (const s of document.querySelectorAll('.screen')) s.classList.toggle('hidden', s.id !== id);
-  document.body.classList.toggle('in-battle', id === 'battle');
+function show(id, { vt = false } = {}) {
+  const apply = () => {
+    for (const s of document.querySelectorAll('.screen')) s.classList.toggle('hidden', s.id !== id);
+    document.body.classList.toggle('in-battle', id === 'battle');
+  };
+  // 換畫面淡入淡出只用在「離開對戰回首頁」：View Transitions 的切換是非同步的，進對戰要立刻量版面，不能等
+  if (vt) withViewTransition(apply); else apply();
 }
 
 async function init() {
@@ -145,6 +151,7 @@ async function init() {
   });
   updateMuteIcon();
   initFx();
+  initHolo();
   setupPWA();
   if (!PG.getStats().games) { const tl = $('[data-open="tutorial"]'); if (tl) tl.classList.add('hot'); }
   setupAttract();
@@ -187,6 +194,8 @@ function setupBattle(side) {
   resultShown = false;
   closeModal();
   show('battle');
+  if (gameKind !== 'tutorial') versusIntro(me, { blue: SIDE_NAME.blue, green: SIDE_NAME.green });
+  prefetchFx();
   $('#me-mascot').src = `assets/${me}_back.webp`;
   for (const x of ['hurt', 'happy', 'win', 'lose']) new Image().src = `assets/${me}_back_${x}.webp`; // 先載好，換表情時不閃
   clearTimeout(meFaceTimer);
@@ -346,7 +355,7 @@ function render() {
     const el = document.createElement('button');
     const ok = myTurn && !busy && canPlay(game, me, c.uid);
     const cost = cardCost(game, me, c);
-    el.className = `card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity} ${ok ? 'ok' : 'cant'}`;
+    el.className = `card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity} ${holoClass(c.rarity)} ${ok ? 'ok' : 'cant'}`;
     if (myTurn && c.combo && game.comboTag === c.combo) el.classList.add('combo-ready');
     if (myTurn && tutorialTarget(c)) el.classList.add('coach-target');
     if (!seenUids.has(c.uid)) {
@@ -480,7 +489,7 @@ function showCast(c) {
     if (c.facedown) body = `<div class="cast-card facedown ${c.side}"><div class="back">🂠</div><div class="nm">？？？</div></div>`;
     else if (c.venue) body = `<div class="cast-card venue-card"><div class="venue-ico">${c.venue.icon}</div><div class="nm">${esc(c.venue.name)}</div><div class="tx">${esc(c.venue.text)}</div><div class="small">${t('持續 3 回合・雙方都受影響')}</div></div>`;
     else if (c.ult) body = `<div class="cast-card ult ${c.side}"><img class="mascot-art" src="assets/${c.side}_win.webp" alt=""><div class="nm">${c.ult}</div></div>`;
-    else body = `<div class="cast-card ${sideCls} t-${c.card.type} ${c.card.rarity}"><img class="art" src="${art(c.card.id)}" alt="">
+    else body = `<div class="cast-card ${sideCls} t-${c.card.type} ${c.card.rarity} ${holoClass(c.card.rarity)}"><img class="art" src="${art(c.card.id)}" alt="">
       <div class="nm">${c.card.name}</div><div class="tx">${c.card.text}</div>${pttLine(c.card)}</div>`;
     box.innerHTML = `<div class="cast-label ${c.bad ? 'bad' : ''} ${c.side}">${c.label}</div>${body}`;
     box.className = `cast-${c.side === me ? 'me' : 'opp'}`;
@@ -891,7 +900,7 @@ function openCard(uid) {
   else if (c.type === 'trap' && game.players[me].traps.length >= 2) why = t('最多同時蓋 2 張陷阱');
   else if (!ok) why = t('行程點不足（需要 {n}）', { n: cost });
   openModal(`
-    <div class="big-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity}">
+    <div class="big-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity} ${holoClass(c.rarity)}">
       <img class="art" src="${art(c.id)}" alt="">
       <div class="nm">${TYPE[c.type][0]} ${c.name}</div>
       <div class="meta">${t('{type}卡・{rar}・行程點 {cost}', { type: t(TYPE[c.type][1]), rar: t(RAR_NAME[c.rarity]), cost })}${cost > c.cost ? t('（被追問 +1）') : ''}${t(c.type === 'magic' ? '・不佔回合' : '・打出後換對手')}${c.combo ? `・🔗${COMBO_INFO[c.combo].name}` : ''}</div>
@@ -1239,7 +1248,7 @@ function openAlbum(fromMenu = false, tab = 'ach') {
     const list = CARDS.filter((c) => c.side === 'shared' || c.side === 'blue' || c.side === 'green');
     body = `<p class="small">${t('已收集 {n} / {m} 張（抽到過就算）', { n: list.filter((c) => seen.has(c.id)).length, m: list.length })}</p>
       <div class="gallery">${list.map((c) => seen.has(c.id)
-        ? `<button class="g-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity}" data-gal="${c.id}"><img src="${art(c.id)}" alt="" loading="lazy"><b>${esc(c.name)}</b></button>`
+        ? `<button class="g-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity} ${holoClass(c.rarity)}" data-gal="${c.id}"><img src="${art(c.id)}" alt="" loading="lazy"><b>${esc(c.name)}</b></button>`
         : '<div class="g-card unknown"><span>？</span></div>').join('')}</div>`;
   } else if (tab === 'pol') {
     const used = new Set(st.policies || []);
@@ -1259,7 +1268,7 @@ function openAlbum(fromMenu = false, tab = 'ach') {
 }
 function galleryCard(id, fromMenu) {
   const c = CARD_BY_ID[id];
-  openModal(`<div class="big-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity}">
+  openModal(`<div class="big-card ${c.side === 'shared' ? '' : c.side} t-${c.type} ${c.rarity} ${holoClass(c.rarity)}">
       <img class="art" src="${art(c.id)}" alt="">
       <div class="nm">${TYPE[c.type][0]} ${esc(c.name)}</div>
       <div class="meta">${t('{type}卡・{rar}・行程點 {cost}', { type: t(TYPE[c.type][1]), rar: t(RAR_NAME[c.rarity]), cost: c.cost })}${c.combo ? `・🔗${COMBO_INFO[c.combo].name}` : ''}</div>
@@ -1408,7 +1417,7 @@ function stopDemo() {
   crowd.stop();
   const b = $('#demo-banner'); if (b) b.classList.add('hidden');
   closeModal();
-  show('title');
+  show('title', { vt: true });
   armAttract();
 }
 
@@ -1467,7 +1476,7 @@ function goHome() {
   syncBoard(null);
   crowd.stop();
   closeModal();
-  show('title');
+  show('title', { vt: true });
   armAttract();
 }
 
@@ -1476,6 +1485,7 @@ function showResult() {
   if (gameKind === 'demo') { demoFinished(); return; }
   resultShown = true;
   clearInterval(timerId);
+  resultTransition(me, game.winner);
   try { sessionStorage.removeItem('bg_room'); } catch { /* 忽略 */ }
   const w = game.winner;
   const b = game.players.blue.supporters, g = game.players.green.supporters;

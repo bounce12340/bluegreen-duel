@@ -1,7 +1,7 @@
 // 離線快取（PWA）。這個檔案由 tools/gen_sw.mjs 產生，請勿手改；改了 site/ 的檔案要重跑一次。
 // 策略：網頁、程式、樣式「先網路、失敗才用快取」（關站日、時事卡下架都以最新版為準）；
 // 圖片、音效「先快取」。/api（連線對戰）一律不快取。
-const VERSION = 'de545962a3b9';
+const VERSION = 'd6d3397c01d0';
 const CACHE = `bgd-${VERSION}`;
 const FILES = [
   './',
@@ -111,6 +111,8 @@ const FILES = [
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/maskable-512.png',
+  './assets/lottie/ult_steady.json',
+  './assets/lottie/ult_swap.json',
   './css/style.css',
   './index.html',
   './js/ai.js',
@@ -120,6 +122,10 @@ const FILES = [
   './js/crowd.js',
   './js/engine.js',
   './js/fx.js',
+  './js/fxplus.js',
+  './js/gl_transitions.js',
+  './js/glfx.js',
+  './js/holo.js',
   './js/i18n.js',
   './js/main.js',
   './js/names.js',
@@ -129,6 +135,11 @@ const FILES = [
   './js/share.js',
   './js/sound.js',
   './manifest.webmanifest',
+  './vendor/LICENSES.txt',
+  './vendor/fx-confetti.mjs',
+  './vendor/fx-lottie.mjs',
+  './vendor/fx-particles.mjs',
+  './vendor/fx-pixi.mjs',
 ];
 
 self.addEventListener('install', (e) => {

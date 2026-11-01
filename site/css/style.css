@@ -638,3 +638,42 @@ html[lang="en"] .card .nm { overflow-wrap: anywhere; }
 
 /* 自製特效圖示（取代 emoji）：大小跟著所在位置的字級走 */
 .fx-layer img.ic, .venue-fx img.ic { width: 1.15em; height: 1.15em; display: inline-block; vertical-align: middle; object-fit: contain; -webkit-user-drag: none; user-select: none; }
+
+/* ── 進階特效（fxplus.js、holo.js、glfx.js）────────────── */
+/* 全像閃卡：holo.js 依手指位置或手機傾斜設定 --mx --my --rot --ho */
+#hand, #cast, #modal-box, .gallery { perspective: 900px; }
+.holo { transition: rotate .3s ease-out; }
+.holo.holo-live { rotate: var(--rot, none); transition: rotate .06s linear; }
+:is(.card, .big-card, #cast .cast-card, .g-card).holo::after { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2; border-radius: inherit; }
+:is(.card, .big-card, #cast .cast-card, .g-card).holo.holo-live::after {
+  animation: none; mix-blend-mode: color-dodge; opacity: var(--ho, .5);
+  background:
+    radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,.8) 0, rgba(255,255,255,.18) 22%, transparent 46%),
+    repeating-linear-gradient(115deg, rgba(255,90,170,.55) 0%, rgba(90,220,255,.55) 7%, rgba(255,240,120,.55) 14%, rgba(140,255,170,.5) 21%, rgba(255,90,170,.55) 28%);
+  background-size: 100% 100%, 320% 320%;
+  background-position: center, var(--mx, 50%) var(--my, 50%);
+}
+:is(.card, .big-card, #cast .cast-card, .g-card).holo:not(.holo-epic).holo-live::after { opacity: calc(var(--ho, .5) * .55); }
+.card.cant.holo.holo-live::after { opacity: .15; }
+/* 彩帶畫布：蓋整個畫面、不擋點擊 */
+.fx-confetti-cv { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 55; pointer-events: none; }
+/* 下雨、煙火：人偶上面、手牌下面 */
+.fx-particles { position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0; transition: opacity .5s; }
+.fx-particles.on { opacity: 1; }
+.fx-particles.wet { background: linear-gradient(rgba(38,56,88,.32), rgba(38,56,88,.18)); }
+.fx-particles canvas { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }
+/* 背景震波：疊在背景圖上、群眾與人偶下面，平常隱藏 */
+.fx-pixi { position: absolute; inset: 0; width: 100% !important; height: 100% !important; pointer-events: none; opacity: 0; }
+.fx-pixi.on { opacity: 1; }
+#battle.night .fx-pixi { filter: brightness(.55) saturate(1.3) hue-rotate(-15deg); }
+/* 大絕招 Lottie 動畫 */
+.fx-lottie { position: fixed; left: 50%; top: 45%; width: min(80vw, 60vh, 460px); aspect-ratio: 1; translate: -50% -50%; z-index: 54; pointer-events: none; animation: fxIn .3s cubic-bezier(.2,.9,.3,1.3) both; filter: drop-shadow(0 10px 30px rgba(0,0,0,.35)); }
+.fx-lottie.out { animation: fxOut .25s ease-in both; }
+/* WebGL 轉場畫布 */
+.gl-trans { position: fixed; inset: 0; width: 100vw; height: 100dvh; pointer-events: none; transition: opacity .3s; }
+.gl-trans.out { opacity: 0; }
+/* 換畫面的淡入淡出（View Transitions） */
+::view-transition-old(root) { animation: vtOut .22s ease-in both; }
+::view-transition-new(root) { animation: vtIn .3s cubic-bezier(.2,.9,.3,1) both; }
+@keyframes vtOut { to { opacity: 0; transform: scale(.98); } }
+@keyframes vtIn { from { opacity: 0; transform: scale(1.03); } }
