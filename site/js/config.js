@@ -13,7 +13,8 @@ export const CONFIG = {
 
   CONTACT_EMAIL: 'bluegreen-duel@agentmail.to',
 
-  // 綠界實況主收款頁網址；留空則不顯示贊助按鈕
+  // 支持開發者的贊助頁網址（例如綠界「創作者金流平台」的收款頁，必須是 https://）；留空則不顯示贊助按鈕
+  // 贊助是給獨立開發者個人的，遊戲內不給任何好處，也和任何候選人、政黨無關
   SPONSOR_URL: '',
 
   TURN_SECONDS: 30,

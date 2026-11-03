@@ -678,3 +678,9 @@ html[lang="en"] .card .nm { overflow-wrap: anywhere; }
 ::view-transition-new(root) { animation: vtIn .3s cubic-bezier(.2,.9,.3,1) both; }
 @keyframes vtOut { to { opacity: 0; transform: scale(.98); } }
 @keyframes vtIn { from { opacity: 0; transform: scale(1.03); } }
+
+/* 支持開發者 */
+.sponsor-notes { margin: 8px 0 4px; padding-left: 1.2em; line-height: 1.6; font-size: 14px; }
+.sponsor-notes li { margin: 4px 0; }
+a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.sponsor-line { opacity: .8; margin-top: 4px; }

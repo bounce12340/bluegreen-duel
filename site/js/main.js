@@ -121,11 +121,7 @@ async function init() {
     a.href = `mailto:${CONFIG.CONTACT_EMAIL}`;
     a.textContent = CONFIG.CONTACT_EMAIL;
   }
-  if (CONFIG.SPONSOR_URL) {
-    const s = $('.sponsor-link');
-    s.href = CONFIG.SPONSOR_URL;
-    s.classList.remove('hidden');
-  }
+  if (sponsorUrl()) for (const s of document.querySelectorAll('.sponsor-link')) s.classList.remove('hidden');
   server = await fetchStatus();
   const reason = server.maintenance ? server.msg : closedReason();
   if (reason) { $('#closed-msg').textContent = tr(reason); show('closed'); return; }
@@ -137,7 +133,7 @@ async function init() {
     if (saved && server.online && Date.now() - saved.at < 25 * 60_000) connectRoom(saved.code, saved.name);
   } catch { /* 忽略 */ }
   for (const b of document.querySelectorAll('[data-open]')) {
-    b.addEventListener('click', () => ({ rules: () => openRules(), privacy: openPrivacy, report: openReport, daily: openDaily, album: openAlbum, tutorial: openTutorial }[b.dataset.open] || openPrivacy)());
+    b.addEventListener('click', () => ({ rules: () => openRules(), privacy: openPrivacy, report: openReport, daily: openDaily, album: openAlbum, tutorial: openTutorial, sponsor: () => openSponsor() }[b.dataset.open] || openPrivacy)());
   }
   $('#mute').addEventListener('click', toggleMute);
   $('#menu').addEventListener('click', openMenu);
@@ -1177,6 +1173,26 @@ function openRules(first = false, then = null) {
   $('#m-ok').onclick = done;
 }
 
+// 支持開發者：先說清楚錢給誰、不是政治獻金、遊戲內沒有好處，再開新分頁到外部贊助頁
+function sponsorUrl() {
+  const u = CONFIG.SPONSOR_URL;
+  return typeof u === 'string' && /^https:\/\/[^\s"'<>]+$/.test(u) ? u : '';
+}
+function openSponsor() {
+  const url = sponsorUrl();
+  if (!url) return;
+  openModal(`<h2>${t('☕ 支持開發者')}</h2>
+    <p>${t('這款遊戲由獨立開發者一個人製作，免費遊玩。如果你玩得開心，可以小額贊助，用來支付伺服器與 AI 美術、配音的費用。')}</p>
+    <ul class="sponsor-notes">
+      <li>${t('款項只給開發者個人，<b>與任何候選人、政黨或競選團隊無關，不是政治獻金</b>，也不會轉交任何陣營。')}</li>
+      <li>${t('贊助<b>不會</b>在遊戲裡得到任何好處，對戰對所有人都一樣公平。')}</li>
+      <li>${t('付款在外部的贊助平台完成，本站不會經手或保存你的付款資料。')}</li>
+    </ul>
+    <div class="btns"><a class="btn primary" id="m-go" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${t('前往贊助頁')}</a><button class="btn" id="m-ok">${t('先不用')}</button></div>`, { pause: true });
+  $('#m-go').onclick = () => setTimeout(closeModal, 300);
+  $('#m-ok').onclick = closeModal;
+}
+
 function openPrivacy() {
   if (EN) {
     openModal(`${privacyHTML_EN(CONFIG)}<div class="btns"><button class="btn primary" id="m-ok">Close</button></div>`, { pause: true });
@@ -1189,6 +1205,7 @@ function openPrivacy() {
     <p><b>暱稱審核</b>：你輸入的暱稱會送到 TypeSafe 的 Jev 模型，判斷是否冒充真實人物或官方、罵人、歧視或拉票。審核結果（只有暱稱與通過與否）在伺服器保存 7 天，避免重複審核。請不要在暱稱裡放個人資料。</p>
     <p><b>回報問題</b>：你寫的回報內容會送到 TypeSafe 的 Jev 模型自動分類；勾選時另附這局的遊戲數字與瀏覽器種類（例如 Safari、iOS、是否在 LINE 裡開啟），不含 IP 或任何識別資料。回報最多保存 7 天，彙整寄給作者後刪除。</p>
     <p><b>聯絡信箱</b>：寄到聯絡信箱的信，主旨與內文會送到 TypeSafe 的 Jev 模型自動分類（例如下架要求、錯誤回報），寄件人地址不會送出；需要處理的信會轉寄給作者本人。</p>
+    <p><b>支持開發者</b>：按「前往贊助頁」會在新分頁開啟外部贊助平台，付款與個人資料由該平台處理，本站不會收到或保存；贊助與否不影響遊戲。</p>
     <p>你的瀏覽器會在你的裝置上記住：是否靜音、是否看過教學、上次用的暱稱、進行中對局的識別碼（關閉分頁即清除），以及<b>你對戰電腦時的出牌習慣統計</b>（被抓到吹牛幾次、多常質疑），讓電腦學著猜你；另外還有成就、對戰統計、卡牌圖鑑與每日挑戰紀錄。這些都只存在你的裝置上，不會上傳。</p>
     <p><b>對戰電腦時</b>，你蓋牌宣告的當下，伺服器可能把<b>遊戲數字</b>（回合、雙方人數、宣告的卡、上述習慣統計）送到 TypeSafe 的 Jev 模型，請它判斷你像不像在吹牛。送出的資料不含暱稱、IP 或任何個人資料。</p>
     <p><b>電腦強度</b>：每局對戰電腦結束後，伺服器會把<b>最近幾局的遊戲數字</b>（勝負、人數差距、回合數、跳過與逾時次數、局長）送到 TypeSafe 的 Jev 模型，判斷要不要讓電腦放水。不含暱稱、IP 或任何個人資料；戰績統計只存在你的裝置上。</p>
@@ -1511,6 +1528,7 @@ function showResult() {
     ${dailyLine}
     <div class="btns"><button class="btn ${me}" id="m-again">${t('再玩一次')}</button><button class="btn ${opp}" id="m-swap">${t('換陣營')}</button></div>
     <div class="btns"><button class="btn" id="m-card">${t('📸 戰績圖卡')}</button><button class="btn" id="m-share">${t('分享')}</button><button class="btn" id="m-home">${t('回首頁')}</button></div>
+    ${sponsorUrl() ? `<p class="center small sponsor-line"><a href="${esc(sponsorUrl())}" target="_blank" rel="noopener noreferrer">${t('☕ 支持開發者')}</a>${t('（款項只給開發者個人，與任何候選人、政黨無關，不是政治獻金；遊戲內沒有任何好處）')}</p>` : ''}
     <div class="ptt center-ptt">${w === 'draw'
       ? `<span class="tag arrow">→</span><span class="id">${t('鄉民')}</span>: <span class="msg">${t('平手？這劇本誰寫的')}</span>`
       : won ? `<span class="tag push">${TONE_TAG.push}</span><span class="id">${t('鄉民')}</span>: <span class="msg">${t('恭喜！好人一生平安')}</span>`

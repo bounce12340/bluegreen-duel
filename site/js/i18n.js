@@ -152,6 +152,15 @@ const DICT = {
   '蔣萬安陣營': 'Wayne Chiang\'s camp', '沈伯洋陣營': 'Puma Shen\'s camp',
   '選一邊開始，對手由電腦操控': 'Pick a side to start. The computer plays the other side.',
   '怎麼玩': 'How to play', '隱私聲明': 'Privacy', '回報問題': 'Report a problem', '贊助': 'Support',
+  '☕ 支持開發者': '☕ Support the developer',
+  '這款遊戲由獨立開發者一個人製作，免費遊玩。如果你玩得開心，可以小額贊助，用來支付伺服器與 AI 美術、配音的費用。':
+    'This game is made by one independent developer and is free to play. If you enjoyed it, a small tip helps pay for the servers, AI artwork and voice-over.',
+  '款項只給開發者個人，<b>與任何候選人、政黨或競選團隊無關，不是政治獻金</b>，也不會轉交任何陣營。':
+    'The money goes to the developer only. <b>It has nothing to do with any candidate, party or campaign and is not a political donation</b>; none of it is passed on to either side.',
+  '贊助<b>不會</b>在遊戲裡得到任何好處，對戰對所有人都一樣公平。': 'Tipping gives you <b>nothing</b> in the game; matches are equally fair for everyone.',
+  '付款在外部的贊助平台完成，本站不會經手或保存你的付款資料。': 'Payment happens on an outside tipping platform; this site never handles or stores your payment details.',
+  '前往贊助頁': 'Go to the tip page', '先不用': 'Not now',
+  '（款項只給開發者個人，與任何候選人、政黨無關，不是政治獻金；遊戲內沒有任何好處）': ' (goes to the developer only; not related to any candidate or party and not a political donation; no in-game benefit)',
   '本作為政治諷刺娛樂，非任何候選人、政黨或競選團隊製作，內容不代表當事人言行。角色為原創 Q 版人偶，美術由 AI 生成。':
     'Political satire for entertainment. Not made by or affiliated with any candidate, party or campaign; nothing here represents what any real person said or did. The mascots are original cartoon characters, and the artwork is AI-generated.',
   '非官方製作・美術由 AI 生成': 'Unofficial fan-made satire · AI-generated art',
@@ -405,6 +414,7 @@ export function privacyHTML_EN(C) {
     <p><b>Nickname check</b>: your nickname is sent to TypeSafe's Jev model to check for impersonating real people or officials, insults, slurs or calls to vote. The result (only the nickname and pass/fail) is kept for 7 days so it isn't checked twice. Please don't put personal details in your nickname.</p>
     <p><b>Problem reports</b>: what you write is sent to TypeSafe's Jev model to be sorted automatically. If you tick the box, this game's numbers and your browser type (e.g. Safari, iOS, opened inside LINE) are attached; no IP address or identifying data. Reports are kept for up to 7 days and deleted after the daily summary goes to the author.</p>
     <p><b>Contact email</b>: the subject and body of emails to our contact address are sent to TypeSafe's Jev model for sorting (e.g. takedown requests, bug reports). The sender's address is not sent. Emails that need attention are forwarded to the author.</p>
+    <p><b>Supporting the developer</b>: "Go to the tip page" opens an outside tipping platform in a new tab. Payment and personal details are handled by that platform; this site never receives or stores them, and tipping has no effect on the game.</p>
     <p>Your browser remembers on your device: mute, whether you've seen the tutorial, your last nickname, your current game ID (cleared when you close the tab), your language, and <b>your play-style stats against the computer</b> (how often you were caught bluffing and how often you challenge), so the computer can learn to read you, plus your achievements, game stats, card collection and daily challenge records. All of this stays on your device and is never uploaded.</p>
     <p><b>Against the computer</b>, when you play face down the server may send <b>game numbers</b> (round, both sides' supporters, the declared card, the stats above) to TypeSafe's Jev model to estimate whether you're bluffing. No nickname, IP or personal data is sent.</p>
     <p><b>Computer strength</b>: after each game against the computer, the server sends <b>your last few games' numbers</b> (wins and losses, supporter margins, rounds, skips and timeouts, game length) to TypeSafe's Jev model to decide whether the computer should go easier. No nickname, IP or personal data; your results stay on your device.</p>
